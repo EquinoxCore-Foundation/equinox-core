@@ -1,0 +1,25 @@
+﻿{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Equinox",
+  "version": "1.0.0",
+  "identifier": "network.equinox.wallet",
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8545 https://bsc-dataseed.binance.org https://eth.llamarpc.com https://mempool.space; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+      "freezePrototype": true,
+      "dangerousDisableAssetCspModification": false
+    },
+    "windows": [
+      {
+        "title": "EQUINOX — Self-Custody Wallet & Decentralized Payment Gateway",
+        "width": 1360,
+        "height": 880,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"]
+  }
+}

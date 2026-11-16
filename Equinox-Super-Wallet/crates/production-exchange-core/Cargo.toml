@@ -1,0 +1,4 @@
+﻿[package]
+name = "eqx-production-exchange-core"
+version = "1.0.0"
+edition = "2021"

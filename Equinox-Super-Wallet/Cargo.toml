@@ -1,0 +1,21 @@
+﻿[workspace]
+members = [
+    "crates/rpc-client",
+    "crates/security-engine",
+    "crates/key-vault",
+    "crates/wallet-engine",
+    "crates/chain-adapters",
+    "crates/portfolio-engine",
+    "crates/storage-engine",
+    "crates/auth-engine",
+    "crates/anti-fraud-vault",
+    "crates/i18n-oracle-engine",
+    "crates/deposit-ai-gateway",
+    "crates/depository-vault",
+    "crates/hyperscale-engine",
+    "crates/century-autonomy-engine",
+    "crates/payment-gateway",
+    "crates/tauri-wallet-core",
+    "crates/production-exchange-core"
+]
+resolver = "2"

@@ -1,0 +1,14 @@
+﻿/target/
+**/target/
+**/node_modules/
+*.dat
+*.db
+*.db-shm
+*.db-wal
+.env
+.vs/
+equinox_l1_final_audit.txt
+equinox_wallet_final_audit.txt
+equinox_short_audit.txt
+equinox_master_audit.txt
+equinox-ipfs-deploy/

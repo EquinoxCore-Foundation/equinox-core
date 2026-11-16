@@ -1,0 +1,46 @@
+.rm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.rm-chip {
+  background: #080d16;
+  border: 1px solid rgba(245,196,81,0.28);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+}
+.rm-chip b { color: #f5c451; }
+.inv-card {
+  background: linear-gradient(
+    180deg, #0c1422 0%, #070b12 100%
+  );
+  border: 1px solid rgba(245,196,81,0.35);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.st-badge {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 900;
+  font-size: 11px;
+  font-family: Consolas, monospace;
+}
+.st-PENDING {
+  background: rgba(245,158,11,0.2);
+  color: #fbbf24;
+}
+.st-CONFIRMED {
+  background: rgba(16,185,129,0.22);
+  color: #34d399;
+}
+.st-FAILED, .st-EXPIRED {
+  background: rgba(244,63,94,0.22);
+  color: #fb7185;
+}

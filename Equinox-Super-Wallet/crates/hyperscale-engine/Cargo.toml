@@ -1,0 +1,4 @@
+﻿[package]
+name = "eqx-hyperscale-engine"
+version = "5.0.0"
+edition = "2021"

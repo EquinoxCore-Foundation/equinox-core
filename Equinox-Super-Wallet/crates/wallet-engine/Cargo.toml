@@ -1,0 +1,4 @@
+﻿[package]
+name = "eqx-wallet-engine"
+version = "0.6.0"
+edition = "2021"

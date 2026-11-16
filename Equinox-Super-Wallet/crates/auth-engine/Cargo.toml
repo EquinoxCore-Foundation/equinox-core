@@ -1,0 +1,4 @@
+﻿[package]
+name = "eqx-auth-engine"
+version = "1.1.0"
+edition = "2021"

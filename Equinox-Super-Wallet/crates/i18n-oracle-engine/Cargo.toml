@@ -1,0 +1,4 @@
+﻿[package]
+name = "eqx-i18n-oracle-engine"
+version = "3.0.0"
+edition = "2021"

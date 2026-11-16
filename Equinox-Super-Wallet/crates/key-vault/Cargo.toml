@@ -1,0 +1,26 @@
+﻿[package]
+name = "equinox-key-vault"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+argon2 = { version = "0.5", features = ["std"] }
+aes-gcm = { version = "0.10", features = ["aes", "alloc"] }
+chacha20poly1305 = { version = "0.10", features = ["alloc"] }
+bip39 = { version = "2.0", features = ["std", "rand"] }
+k256 = { version = "0.13", features = ["ecdsa", "arithmetic", "expose-field"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core", "zeroize"] }
+hmac = "0.12"
+sha2 = "0.10"
+sha3 = "0.10"
+ripemd = "0.1"
+bs58 = { version = "0.5", features = ["check"] }
+bech32 = "0.9"
+rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+thiserror = "1.0"
+[workspace]
+

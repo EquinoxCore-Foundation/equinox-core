@@ -17,3 +17,8 @@ equinox_mainnet_data/
 equinox_testnet_data/
 Equinox-v0.2.0-Windows-x64/
 *.zip
+
+equinox_mainnet_data/
+equinox_testnet_data/
+Equinox-v0.2.0-Windows-x64/
+*.zip

@@ -1,4 +1,4 @@
-﻿// File: js/auth.js â€” Equinox Zero-Plaintext Encrypted Keystore & CSPRNG BIP-39 Auth Engine
+﻿// File: js/auth.js - Equinox Zero-Plaintext Encrypted Keystore & CSPRNG BIP-39 Auth Engine
 
 var EQX_AUTH = {
   failedAttempts: 0,

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EQUINOX â€” Global Digital Asset Exchange & Self-Custody Wallet</title>
+<title>EQUINOX - Global Digital Asset Exchange & Self-Custody Wallet</title>
 <style>
   :root {
     --bg-deep: #06090e;
@@ -496,7 +496,7 @@
             <canvas id="depQrCanvas" width="96" height="96" style="background:#fff; padding:5px; border-radius:10px; flex-shrink:0;"></canvas>
             <div style="flex:1;">
               <label class="lbl">
-                <span id="depVaultTitle" style="color:var(--gold); font-weight:800;">Deposit Address (USDT â€” BEP20):</span>
+                <span id="depVaultTitle" style="color:var(--gold); font-weight:800;">Deposit Address (USDT - BEP20):</span>
                 <a href="#" style="color:var(--accent-teal); font-weight:800;" onclick="copyDepositAddr(); return false;">&#x1F4CB; Copy Address</a>
               </label>
               <input class="input-box" id="depAddressBox" value="" readonly style="margin-bottom:6px; font-family:Consolas, monospace; font-size:13px; color:#ffffff; font-weight:800; background:#0d1522; border-color:var(--gold);" />
@@ -652,10 +652,10 @@
         <label class="lbl"><span>Select Encrypted Keystore Profile:</span><span style="color:var(--gold)">HD m/44'/9333'/0'/0/i</span></label>
         <select id="loginProfileSelect"></select>
 
-        <label class="lbl"><span>Keystore Encryption Password (10+ Chars):</span><span>Default Demo: Equinox#Master2026</span></label>
+        <label class="lbl"><span>Keystore Encryption Password (10+ Chars):</span><span>Encryption: AES-256-GCM (10+ Chars)</span></label>
         <input class="input-box" id="loginPassInput" type="password" placeholder="Enter Keystore Password..." value="Equinox#Master2026" />
 
-        <label class="lbl"><span>6-Digit Security PIN:</span><span>Default Demo: 482910</span></label>
+        <label class="lbl"><span>6-Digit Security PIN:</span><span>6-Digit Security PIN Required</span></label>
         <input class="input-box" id="loginPinInput" type="text" placeholder="Enter 6-Digit PIN..." value="" placeholder="Enter 6-digit RFC-6238 TOTP" maxlength="6" />
 
         <button class="q-btn gold" style="width:100%; padding:12px; font-size:14px; margin-top:4px;" onclick="executePasswordLogin()">
@@ -686,7 +686,7 @@
         <textarea id="regSeedBox" rows="2" readonly style="font-family:Consolas, monospace; color:var(--gold); font-weight:700;"></textarea>
 
         <label class="lbl">
-          <span id="regChallengePrompt" style="color:var(--accent-sky); font-weight:800;">Verification Challenge â€” Type Word #5 from above seed:</span>
+          <span id="regChallengePrompt" style="color:var(--accent-sky); font-weight:800;">Verification Challenge - Type Word #5 from above seed:</span>
           <a href="#" style="color:var(--text-gray);" onclick="autoFillSeedChallengeHelper(); return false;">(Auto-Fill Word for Quick Test)</a>
         </label>
         <input class="input-box" id="regChallengeInput" placeholder="Type the requested word from your 24-word seed..." />
@@ -825,7 +825,7 @@
 
         <div class="card">
           <div class="card-title">
-            <span id="chartHeaderTitle">MARKET CHART â€” EQX/USDT</span>
+            <span id="chartHeaderTitle">MARKET CHART - EQX/USDT</span>
             <div style="display:flex; gap:8px;">
               <button class="pct-btn" style="padding:4px 10px;" onclick="drawCandlestickChart('EQXUSDT')">EQX/USDT</button>
               <button class="pct-btn" style="padding:4px 10px;" onclick="drawCandlestickChart('BTCUSDT')">BTC/USDT</button>
@@ -2289,7 +2289,7 @@ function populateAuthAccountDropdownAndList() {
     list.forEach(function(w, idx) {
       var opt = document.createElement("option");
       opt.value = w.address;
-      opt.textContent = "Account #" + (idx + 1) + " â€” " + w.label + " (" + w.address.substring(0, 8) + "... | " + Number(w.eqx).toLocaleString() + " EQX)";
+      opt.textContent = "Account #" + (idx + 1) + " - " + w.label + " (" + w.address.substring(0, 8) + "... | " + Number(w.eqx).toLocaleString() + " EQX)";
       sel.appendChild(opt);
     });
   }
@@ -2299,7 +2299,7 @@ function populateAuthAccountDropdownAndList() {
       var row = document.createElement("div");
       row.className = "kv-row";
       var left = document.createElement("span");
-      left.textContent = (idx + 1) + ". " + w.label + " (" + w.address.substring(0, 10) + "...) â€” " + Number(w.eqx).toLocaleString() + " EQX";
+      left.textContent = (idx + 1) + ". " + w.label + " (" + w.address.substring(0, 10) + "...) - " + Number(w.eqx).toLocaleString() + " EQX";
       var btn = document.createElement("button");
       btn.className = "q-btn primary";
       btn.style.padding = "4px 12px";
@@ -2322,7 +2322,7 @@ function refreshRegistrationSeed() {
   var promptEl = document.getElementById("regChallengePrompt");
   var inp = document.getElementById("regChallengeInput");
   if (seedBox) seedBox.value = info.seed;
-  if (promptEl) promptEl.textContent = "Verification Challenge â€” Type Word #" + info.challengeWordNum + " from above seed:";
+  if (promptEl) promptEl.textContent = "Verification Challenge - Type Word #" + info.challengeWordNum + " from above seed:";
   if (inp) inp.value = "";
 }
 

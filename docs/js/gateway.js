@@ -1,4 +1,4 @@
-﻿// File: js/gateway.js â€” Enterprise-Grade Decentralized Payment Gateway & AMM Swap Engine
+﻿// File: js/gateway.js - Enterprise-Grade Decentralized Payment Gateway & AMM Swap Engine
 // High Performance, Zero-Trust Non-Custodial Checkout & Automated Liquidity Routing
 
 var EQX_DECENTRALIZED_GATEWAY = {

@@ -1,4 +1,4 @@
-// File: apps/desktop/src/js/tauri-bridge.js
+﻿// File: apps/desktop/src/js/tauri-bridge.js
 // Strict Zero-Secret Frontend IPC Bridge (Rule #8: Never expose private keys or mnemonics to JS)
 // Replaces all demo passwords, hardcoded PINs, fake balances, and client-side XOR crypto.
 

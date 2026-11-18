@@ -1,4 +1,4 @@
-// File: js/qr.js — Equinox Cryptographic Address Engine (Base58Check + BIP-173 Bech32 + QR)
+﻿// File: js/qr.js — Equinox Cryptographic Address Engine (Base58Check + BIP-173 Bech32 + QR)
 
 var EQX_QR = {
   B58_ALPHABET: "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",

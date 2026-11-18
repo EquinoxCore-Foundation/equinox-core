@@ -1,0 +1,14 @@
+﻿name: equinox_mobile_wallet
+description: Equinox Core (EQX) Non-Custodial Mobile Super-Wallet (Android & iOS)
+publish_to: 'none'
+version: 0.2.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  qr_flutter: ^4.1.0
+  shared_preferences: ^2.2.2

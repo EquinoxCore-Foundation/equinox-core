@@ -1,0 +1,13 @@
+﻿{
+  "network": "equinox-mainnet-and-testnet",
+  "chain_id": 9333,
+  "p2p_port": 19333,
+  "rpc_port": 18545,
+  "pex_enabled": true,
+  "dns_seeds": [
+    "seed1.equinoxcore-foundation.org:19333",
+    "seed2.equinoxcore-foundation.org:19333",
+    "127.0.0.1:19333"
+  ],
+  "bootstrap_fallback": "Peer-Exchange (PEX) Auto-Discovery via Gossip Protocol"
+}

@@ -1,14 +1,15 @@
-﻿name: equinox_mobile_wallet
-description: Equinox Core (EQX) Non-Custodial Mobile Super-Wallet (Android & iOS)
+﻿name: equinox_super_wallet
+description: Equinox Core (EQX) Non-Custodial Layer-1 Mobile Super-Wallet & POS.
 publish_to: 'none'
 version: 0.2.0+1
 
 environment:
-  sdk: '>=3.2.0 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  http: ^1.2.0
-  qr_flutter: ^4.1.0
-  shared_preferences: ^2.2.2
+  http: ^1.1.0
+
+flutter:
+  uses-material-design: true

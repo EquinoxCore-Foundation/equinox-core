@@ -643,7 +643,7 @@
       <div class="modal-tabs" style="grid-template-columns: repeat(4, 1fr);">
         <button class="modal-tab active" id="authTabBtnLogin" onclick="switchAuthTab('login', this)">1. Login</button>
         <button class="modal-tab" id="authTabBtnRegister" onclick="switchAuthTab('register', this)">2. Create Account</button>
-        <button class="modal-tab" id="authTabBtnRecover" onclick="switchAuthTab('recover', this)">3. Seed Recovery</button>
+        <button class="modal-tab" id="authTabBtnRecover" onclick="switchAuthTab('recover', this)">3. Vault Recovery</button>
         <button class="modal-tab" id="authTabBtnAccounts" onclick="switchAuthTab('accounts', this)">4. Accounts</button>
       </div>
 
@@ -653,7 +653,7 @@
         <select id="loginProfileSelect"></select>
 
         <label class="lbl"><span>Keystore Encryption Password (10+ Chars):</span><span>Encryption: AES-256-GCM (10+ Chars)</span></label>
-        <input class="input-box" id="loginPassInput" type="password" placeholder="Enter Keystore Password..." value="Equinox#Master2026" />
+        <input class="input-box" id="loginPassInput" type="password" placeholder="Enter Keystore Password..." value="" placeholder="Enter Keystore Password (10+ Chars)..." />
 
         <label class="lbl"><span>6-Digit Security PIN:</span><span>6-Digit Security PIN Required</span></label>
         <input class="input-box" id="loginPinInput" type="text" placeholder="Enter 6-Digit PIN..." value="" placeholder="Enter 6-digit RFC-6238 TOTP" maxlength="6" />
@@ -672,12 +672,12 @@
           </div>
           <div>
             <label class="lbl"><span>Set 6-Digit Security PIN:</span></label>
-            <input class="input-box" id="regPinInput" type="text" placeholder="6-Digit PIN (e.g. 482910)" value="" placeholder="Enter 6-digit RFC-6238 TOTP" maxlength="6" />
+            <input class="input-box" id="regPinInput" type="text" placeholder="6-Digit PIN (6 Digits)" value="" placeholder="Enter 6-digit RFC-6238 TOTP" maxlength="6" />
           </div>
         </div>
 
         <label class="lbl"><span>Set Strong Keystore Password (10+ chars, Upper/Lower/Number):</span></label>
-        <input class="input-box" id="regPassInput" type="password" placeholder="Enter strong password..." value="Equinox#Master2026" />
+        <input class="input-box" id="regPassInput" type="password" placeholder="Enter strong password..." value="" placeholder="Enter Keystore Password (10+ Chars)..." />
 
         <label class="lbl">
           <span style="color:var(--gold)">Your Unique 24-Word BIP39 Recovery Seed (Write This Down!):</span>
@@ -687,7 +687,7 @@
 
         <label class="lbl">
           <span id="regChallengePrompt" style="color:var(--accent-sky); font-weight:800;">Verification Challenge - Type Word #5 from above seed:</span>
-          <a href="#" style="color:var(--text-gray);" onclick="autoFillSeedChallengeHelper(); return false;">(Auto-Fill Word for Quick Test)</a>
+          <a href="#" style="color:var(--text-gray);" onclick="autoFillSeedChallengeHelper(); return false;"></a>
         </label>
         <input class="input-box" id="regChallengeInput" placeholder="Type the requested word from your 24-word seed..." />
 
@@ -699,15 +699,15 @@
       <!-- TAB 3: REAL 12/24-WORD SEED RECOVERY -->
       <div id="auth-recover" class="modal-pane">
         <label class="lbl">
-          <span>Enter Your 12 or 24-Word BIP39 Seed Phrase:</span>
-          <a href="#" style="color:var(--gold);" onclick="fillSampleRecoverySeed(); return false;">Paste Genesis Seed</a>
+          <span>Enter Your 12 or 24-Word Cryptographic Backup Phrase:</span>
+          <a href="#" style="color:var(--gold);" onclick="fillSampleRecoverySeed(); return false;"></a>
         </label>
-        <textarea id="recSeedInput" rows="2" placeholder="Paste your 12 or 24 recovery words separated by spaces..." style="font-family:Consolas, monospace;"></textarea>
+        <textarea id="recSeedInput" rows="2" placeholder="Enter your offline backup words separated by spaces..." style="font-family:Consolas, monospace;"></textarea>
 
         <div class="grid-2" style="margin-bottom:4px;">
           <div>
             <label class="lbl"><span>Set New Keystore Password (10+ Chars):</span></label>
-            <input class="input-box" id="recPassInput" type="password" value="Equinox#Master2026" />
+            <input class="input-box" id="recPassInput" type="password" value="" placeholder="Enter Keystore Password (10+ Chars)..." />
           </div>
           <div>
             <label class="lbl"><span>Set 6-Digit PIN:</span></label>
@@ -2449,6 +2449,7 @@ EQX_EXCHANGE_GATEWAY.startAutoDepositWatcher();
 <link rel="stylesheet" href="css/modern-gateway.css"/><script src="js/adapters.js"></script><script src="js/engine.js"></script><script src="js/ui-patch.js"></script><script src="js/qrcode-matrix.min.js"></script>
 <script src="js/jsQR.min.js"></script>
 <script src="js/eqx-corporate-qr.js"></script>
+  <script src="js/clean-production-ui.js"></script>
 </body>
 </html>
 

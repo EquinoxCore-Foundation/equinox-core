@@ -1,0 +1,20 @@
+﻿name: Equinox L1 Automated Security & Consensus Audit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-audit-and-test:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Verify Safe Rust Compilation
+      run: cargo check --verbose
+    - name: Run 64-Test Cryptographic & Consensus Suite
+      run: cargo test --verbose

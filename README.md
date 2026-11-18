@@ -1,7 +1,22 @@
-# Equinox Core (`EQX`) � Layer-1 Hybrid PoW + BFT UTXO Blockchain
+﻿# ⚡ Equinox Core (`EQX`) — Layer-1 Hybrid PoW + BFT UTXO Blockchain
 
-Equinox (`EQX`) is an audit-grade, zero-floating-point Layer-1 blockchain written in Rust.
+> ### 💻 Got a Normal Laptop or PC? Mine Free `EQX` in 1 Click (Public Testnet Live!)
+> **No expensive GPU required!** Download **`Equinox-Core-v0.2.0-Windows-x64.zip`** from our [**Official Releases**](https://github.com/EquinoxCore-Foundation/equinox-core/releases), extract it, and double-click **`Launch_Equinox.bat`**. You will start mining blocks every **15 seconds** on `Chain ID: 9333` and earn automatic **Mainnet Genesis (`Block #0`) Allocations**!
 
+---
+
+## 📊 Genesis Premine Allocation (`2,000,000 EQX` Total — 100% Transparent)
+
+Out of the `21,000,000 EQX` hard-capped supply, `19,000,000 EQX` is strictly reserved for public Proof-of-Work miners over a 120-year decay schedule. The `2,000,000 EQX` Genesis Premine is cryptographically partitioned across 4 dedicated vaults:
+
+| Vault Name | Allocation (`EQX`) | Share of Premine | Purpose & Lock Policy |
+| :--- | :--- | :--- | :--- |
+| **1. Founder & Core Protocol Vault** | `1,200,000 EQX` | **60%** (`12 Lakh`) | Protected by a 5-Year Cryptographic Block-Height Time-Lock (`src/consensus/`). |
+| **2. Exchange & On-Chain DEX Liquidity Pool** | `400,000 EQX` | **20%** (`4 Lakh`) | Reserved strictly for CEX/DEX market-making and `dex.rs` AMM liquidity seeding. |
+| **3. Open-Source Developer & Bug Bounty Fund** | `200,000 EQX` | **10%** (`2 Lakh`) | Distributed to GitHub contributors, security auditors (`SECURITY.md`), and EIP maintainers. |
+| **4. Community Airdrop, Testnet Miners & Marketing** | `200,000 EQX` | **10%** (`2 Lakh`) | Fixed pro-rata pool for Testnet node runners, YouTubers, and referral quests. |
+
+---
 ## Key Protocol Specifications
 - **Ticker Symbol:** `EQX`
 - **Chain ID:** `9333` (`0x2475`)

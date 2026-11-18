@@ -1,6 +1,17 @@
 ﻿// Equinox Production Clean-Slate UI Initializer
 (function() {
     function sanitizePortal() {
+        // Remove duplicate empty options in select dropdown
+        document.querySelectorAll('select').forEach(sel => {
+            const seen = new Set();
+            Array.from(sel.options).forEach(opt => {
+                if (seen.has(opt.textContent.trim())) {
+                    opt.remove();
+                } else {
+                    seen.add(opt.textContent.trim());
+                }
+            });
+        });
         // Clear any pre-filled password or PIN fields on initial load
         document.querySelectorAll('input[type="password"], input[type="text"]').forEach(inp => {
             if (inp.value === "Equinox#Master2026" || inp.value === "482910" || inp.value === "My Sovereign Vault") {

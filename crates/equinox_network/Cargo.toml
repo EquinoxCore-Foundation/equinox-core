@@ -1,0 +1,12 @@
+﻿[package]
+name = "equinox_network"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "Noise XX E2EE transport, anti-DoS token-bucket rate limiting, banlist, eclipse-resistant PEX discovery, and NAT consensus for Equinox Core (EQX)."
+
+[dependencies]
+snow = "0.9"
+zeroize = { version = "1.8", features = ["derive"] }
+
+[workspace]

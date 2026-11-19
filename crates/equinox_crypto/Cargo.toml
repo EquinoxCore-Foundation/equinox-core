@@ -1,0 +1,19 @@
+﻿[package]
+name = "equinox_crypto"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "Canonical Ed25519, constant-time Base58Check addresses, and Argon2id + AES-256-GCM zeroizing keystore for Equinox Core (EQX)."
+
+[dependencies]
+ed25519-dalek = { version = "2.1", features = ["rand_core", "zeroize"] }
+sha2 = "0.10"
+ripemd = "0.1"
+bs58 = "0.5"
+aes-gcm = "0.10"
+argon2 = "0.5"
+zeroize = { version = "1.8", features = ["derive"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+subtle = "2.6"
+
+[workspace]

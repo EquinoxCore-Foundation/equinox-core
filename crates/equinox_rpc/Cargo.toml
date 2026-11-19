@@ -1,0 +1,13 @@
+﻿[package]
+name = "equinox_rpc"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "DDoS-hardened JSON-RPC 2.0 router, explorer metrics, and bounded WebSocket pub/sub hub for Equinox Core (EQX)."
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+subtle = "2.6"
+
+[workspace]

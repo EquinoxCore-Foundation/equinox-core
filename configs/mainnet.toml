@@ -1,0 +1,25 @@
+﻿[network]
+name = "equinox-mainnet"
+chain_id = 9333
+p2p_port = 19333
+rpc_port = 18545
+noise_prologue = "EQX_MAINNET_9333_NOISE_XX_V1"
+max_outbound_peers = 8
+max_inbound_peers = 42
+max_peers_per_subnet16 = 2
+seed_nodes = [
+    "seed1.equinoxcore.network:19333",
+    "seed2.equinoxcore.network:19333",
+    "seed3.equinoxcore.network:19333"
+]
+
+[consensus]
+target_block_spacing_secs = 15
+asert_half_life_secs = 14400
+max_supply_eqx = 21000000
+genesis_premine_eqx = 2000000
+bft_quorum_bps = 6667
+
+[storage]
+wal_sync_on_commit = true
+utxo_lru_cache_entries = 100000

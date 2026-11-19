@@ -1,0 +1,81 @@
+﻿name: Equinox Cross-Platform Binary Release & Checksums
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: equinox-core-linux-amd64
+            ext: ""
+          - os: ubuntu-24.04-arm
+            artifact_name: equinox-core-linux-arm64
+            ext: ""
+          - os: windows-latest
+            artifact_name: equinox-core-windows-amd64.exe
+            ext: ".exe"
+          - os: macos-latest
+            artifact_name: equinox-core-macos-arm64
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Optimized Release Binary
+        run: cargo build --release
+
+      - name: Stage Release Artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ -f "target/release/equinox-core${{ matrix.ext }}" ]; then
+            cp "target/release/equinox-core${{ matrix.ext }}" "dist/${{ matrix.artifact_name }}"
+          else
+            BIN=$(find target/release -maxdepth 1 -type f -executable ! -name "*.d" ! -name "*.so" ! -name "*.dylib" | head -n 1)
+            cp "$BIN" "dist/${{ matrix.artifact_name }}"
+          fi
+
+      - name: Upload Platform Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+
+  package-configs-and-checksums:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Platform Binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Package mainnet.zip, testnet.zip, and SHA-256 checksums.txt
+        shell: bash
+        run: |
+          cd release-assets
+          zip -j mainnet.zip ../configs/mainnet.toml
+          zip -j testnet.zip ../configs/testnet.toml
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Upload Complete Mainnet Release Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Equinox-Core-CrossPlatform-Release-Bundle
+          path: release-assets/*

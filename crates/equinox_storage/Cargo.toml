@@ -1,0 +1,12 @@
+﻿[package]
+name = "equinox_storage"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "Crash-safe WAL, atomic UTXO batch engine, bounded LRU cache, and deterministic state snapshots for Equinox Core (EQX)."
+
+[dependencies]
+crc32fast = "1.4"
+sha2 = "0.10"
+
+[workspace]

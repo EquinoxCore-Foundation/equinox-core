@@ -1,0 +1,23 @@
+﻿[network]
+name = "equinox-testnet"
+chain_id = 933301
+p2p_port = 29333
+rpc_port = 28545
+noise_prologue = "EQX_TESTNET_933301_NOISE_XX_V1"
+max_outbound_peers = 8
+max_inbound_peers = 42
+max_peers_per_subnet16 = 4
+seed_nodes = [
+    "testnet-seed1.equinoxcore.network:29333"
+]
+
+[consensus]
+target_block_spacing_secs = 15
+asert_half_life_secs = 3600
+max_supply_eqx = 21000000
+genesis_premine_eqx = 2000000
+bft_quorum_bps = 6667
+
+[storage]
+wal_sync_on_commit = false
+utxo_lru_cache_entries = 25000

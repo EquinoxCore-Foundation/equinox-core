@@ -29,3 +29,5 @@ Equinox-v0.2.0-Windows-x64/
 *.zip
 
 Equinox-Core-v0.2.0-Windows-x64/
+crates/*/target/
+*.tmp

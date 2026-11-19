@@ -1,0 +1,15 @@
+﻿[package]
+name = "equinox_wallet"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "SLIP-0010 Ed25519 HD wallet, Ledger/Trezor ISO-7816 APDU hardware signer blueprint, and Air-Gapped cold signing for Equinox Core (EQX)."
+
+[dependencies]
+equinox_crypto = { path = "../equinox_crypto" }
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha2 = "0.10"
+zeroize = { version = "1.8", features = ["derive"] }
+
+[workspace]

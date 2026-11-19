@@ -1,0 +1,30 @@
+﻿name: Equinox Mainnet Crates Security & Unit Test Suite
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  verify-mainnet-crates:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Stable Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Tests Across All 6 Mainnet Crates
+        shell: bash
+        run: |
+          for crate in equinox_consensus equinox_crypto equinox_storage equinox_network equinox_wallet equinox_rpc; do
+            echo "=== Testing crates/$crate ==="
+            cargo test --manifest-path "crates/$crate/Cargo.toml"
+          done

@@ -1,0 +1,10 @@
+﻿[package]
+name = "equinox_consensus"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "Zero-floating-point deterministic ASERT3-2d PoW, 120-year emission, and BFT finality engine for Equinox Core (EQX)."
+
+[dependencies]
+
+[workspace]

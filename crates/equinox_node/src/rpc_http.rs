@@ -8,10 +8,12 @@ use std::thread;
 use std::time::Duration;
 
 use equinox_consensus::MAX_SUPPLY_ATOMIC;
+use equinox_crypto::address::decode_and_verify_address;
 use serde_json::{json, Value};
 
-use crate::genesis::to_hex;
+use crate::genesis::{from_hex, to_hex};
 use crate::runtime::{NodeState, SharedNode};
+use crate::tx::SignedTransaction;
 
 const MAX_HTTP_BYTES: usize = 262_144; // 256 KiB anti-DoS cap
 
@@ -42,7 +44,7 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
     let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(json!([]));
 
-    let st = node.lock().unwrap();
+    let mut st = node.lock().unwrap();
     match method {
         "eqx_getChainInfo" => {
             let query_addr = params
@@ -59,7 +61,9 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
                     "tip_hash": to_hex(&st.storage.tip_hash()),
                     "state_root": to_hex(&st.storage.compute_state_root()),
                     "peers": st.slots.total_connected(),
+                    "pending_txns": st.mempool.len(),
                     "miner_address": st.miner_address,
+                    "dao_address": st.dao_address,
                     "balance": bal as u64,
                     "balance_eqx": NodeState::format_eqx(bal)
                 },
@@ -75,11 +79,20 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
                 "finalized_height": st.bft.finalized_height,
                 "tip_hash": to_hex(&st.storage.tip_hash()),
                 "total_txns": st.total_txns,
+                "pending_txns": st.mempool.len(),
                 "utxo_count": st.storage.utxo_count(),
                 "total_addresses": st.balances.len(),
                 "circulating_supply_atomic": st.circulating_supply_atomic().to_string(),
                 "max_supply_atomic": MAX_SUPPLY_ATOMIC.to_string(),
                 "connected_peers": st.slots.total_connected()
+            },
+            "id": id
+        }),
+        "eqx_getMempoolInfo" => json!({
+            "jsonrpc": "2.0",
+            "result": {
+                "pending_txns": st.mempool.len(),
+                "min_fee_atomic": st.mempool.min_fee_atomic().to_string()
             },
             "id": id
         }),
@@ -102,6 +115,83 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
                 },
                 "id": id
             })
+        }
+        "eqx_getUtxos" => {
+            let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let h160 = match decode_and_verify_address(addr) {
+                Ok(h) => h,
+                Err(_) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": "Invalid Base58Check EQX address" },
+                        "id": id
+                    });
+                }
+            };
+            let list: Vec<Value> = st
+                .utxos_for_hash160(&h160)
+                .into_iter()
+                .map(|(op, val)| {
+                    json!({
+                        "txid": to_hex(&op.txid),
+                        "vout": op.vout,
+                        "value_atomic": val.to_string()
+                    })
+                })
+                .collect();
+            json!({
+                "jsonrpc": "2.0",
+                "result": list,
+                "id": id
+            })
+        }
+        "eqx_sendRawTransaction" => {
+            let raw_hex = match params.get(0).and_then(|v| v.as_str()) {
+                Some(h) => h,
+                None => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": "Expected raw transaction hex string as params[0]" },
+                        "id": id
+                    });
+                }
+            };
+            let raw_bytes = match from_hex(raw_hex) {
+                Ok(b) => b,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": e },
+                        "id": id
+                    });
+                }
+            };
+            let tx = match SignedTransaction::decode_bytes(&raw_bytes) {
+                Ok(t) => t,
+                Err(e) => {
+                    return json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": e },
+                        "id": id
+                    });
+                }
+            };
+            match st.submit_transaction(tx) {
+                Ok((txid, fee)) => json!({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "txid": to_hex(&txid),
+                        "fee_atomic": fee.to_string(),
+                        "status": "accepted_in_mempool"
+                    },
+                    "id": id
+                }),
+                Err(reason) => json!({
+                    "jsonrpc": "2.0",
+                    "error": { "code": -32010, "message": reason },
+                    "id": id
+                }),
+            }
         }
         "eqx_getRecentBlocks" => {
             let blocks: Vec<Value> = st

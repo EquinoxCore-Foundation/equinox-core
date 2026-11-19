@@ -1,10 +1,12 @@
 ﻿#![forbid(unsafe_code)]
 
 mod genesis;
+mod mempool;
 mod miner;
 mod p2p_tcp;
 mod rpc_http;
 mod runtime;
+mod tx;
 
 use std::env;
 use std::fs;
@@ -19,12 +21,13 @@ use equinox_consensus::{
     calculate_block_subsidy, AsertConfig, BftFinalityGuard, U256, CHAIN_ID_MAINNET,
     MAX_SUPPLY_ATOMIC,
 };
-use equinox_crypto::address::encode_mainnet_address;
+use equinox_crypto::address::{encode_mainnet_address, hash160};
 use equinox_crypto::keystore::{EncryptedKeystore, KdfConfig};
 use equinox_crypto::signer::{verify_canonical, SecretSeed, DOMAIN_TX_MAINNET};
 use equinox_network::protocol::WireMessage;
 use equinox_network::transport::{NodeStaticKey, NoiseHandshake, MAINNET_PROLOGUE};
 use equinox_storage::engine::UtxoStorageEngine;
+use equinox_storage::types::OutPoint;
 use equinox_wallet::mnemonic::mnemonic_to_seed;
 use equinox_wallet::slip10::{equinox_hd_path, Slip10Key};
 
@@ -33,6 +36,7 @@ use crate::miner::spawn_cpu_miner;
 use crate::p2p_tcp::{dial_and_verify_peer, spawn_p2p_listener};
 use crate::rpc_http::spawn_rpc_server;
 use crate::runtime::{NetworkMode, NodeState};
+use crate::tx::{SignedTransaction, TxOutput};
 
 fn run_end_to_end_verification() -> Result<(), String> {
     println!("=== Equinox Core (EQX) Mainnet v1.0.0 Full-Stack Verification ===");
@@ -118,6 +122,23 @@ fn run_end_to_end_verification() -> Result<(), String> {
     let sig = ephemeral.sign_domain(DOMAIN_TX_MAINNET, &genesis.block_hash);
     verify_canonical(&pubkey, DOMAIN_TX_MAINNET, &genesis.block_hash, &sig)
         .map_err(|_| "Ed25519 verify failed".to_string())?;
+
+    // Verify canonical SignedTransaction roundtrip
+    let sample_tx = SignedTransaction::sign_transfer(
+        &ephemeral,
+        CHAIN_ID_MAINNET,
+        vec![OutPoint {
+            txid: genesis.block_hash,
+            vout: 0,
+        }],
+        vec![TxOutput {
+            value_atomic: 100_000_000,
+            script_hash160: hash160(&pubkey),
+        }],
+    )?;
+    let decoded_tx = SignedTransaction::decode_bytes(&sample_tx.encode_bytes())?;
+    decoded_tx.verify_signatures()?;
+
     let ks = EncryptedKeystore::encrypt(
         ephemeral.as_bytes(),
         b"Equinox#CeremonyTest2026",
@@ -135,6 +156,7 @@ fn run_end_to_end_verification() -> Result<(), String> {
     println!("[OK] Genesis Block #0 Hash: {}", to_hex(&genesis.block_hash));
     println!("[OK] UTXO State Root      : {}", to_hex(&state_root));
     println!("[OK] Block #1 Total Reward: {} atomic (90% Miner / 10% DAO)", b1.total_subsidy);
+    println!("[OK] Signed UTXO TXID     : {}", to_hex(&decoded_tx.txid()));
     println!("[OK] Noise_XX E2EE + Ed25519 + Argon2id Keystore Verified.");
     Ok(())
 }
@@ -240,7 +262,7 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
     println!("  Equinox Core (EQX) Live Node Running [{}]", mode.name());
     println!("  Chain ID      : {}", chain_id);
     println!("  P2P Noise_XX  : tcp://{} (E2EE + Rate-Limited)", p2p_addr);
-    println!("  JSON-RPC 2.0  : http://{} (Wallet & Explorer API)", rpc_addr);
+    println!("  JSON-RPC 2.0  : http://{} (Wallet, Mempool & Explorer API)", rpc_addr);
     println!("  Miner Address : {}", miner_display);
     println!("  WAL Ledger    : {} (Height #{})", data_file.display(), tip_h);
     println!("  Press Ctrl+C to stop cleanly.");
@@ -292,9 +314,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
     use std::io::{Read, Write};
     use std::net::TcpStream;
+    use std::sync::atomic::Ordering;
 
     fn temp_wal(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -302,6 +324,19 @@ mod tests {
             .unwrap()
             .as_nanos();
         env::temp_dir().join(format!("eqx_live_{}_{}.wal", label, nanos))
+    }
+
+    fn http_post_rpc(addr: SocketAddr, payload: &str) -> String {
+        let http_req = format!(
+            "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(http_req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        stream.read_to_string(&mut resp).unwrap();
+        resp
     }
 
     #[test]
@@ -345,33 +380,126 @@ mod tests {
         let node = Arc::new(Mutex::new(state));
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        // 1. Mine 1 real Double-SHA256 PoW block and commit to WAL
         let mined = miner::mine_one_block(&node, &shutdown).unwrap().unwrap();
         assert_eq!(mined.0.height, 1);
         assert!(mined.0.miner_reward_atomic > 0);
         assert!(mined.0.dao_reward_atomic > 0);
 
-        // 2. Query live HTTP JSON-RPC 2.0 server over real TCP socket
         let rpc_addr = spawn_rpc_server("127.0.0.1:0", Arc::clone(&node), Arc::clone(&shutdown)).unwrap();
         let payload = format!(
             r#"{{"jsonrpc":"2.0","method":"eqx_getChainInfo","params":["{}"],"id":1}}"#,
             miner_addr
         );
-        let http_req = format!(
-            "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            payload.len(),
-            payload
-        );
-
-        let mut stream = TcpStream::connect(rpc_addr).unwrap();
-        stream.write_all(http_req.as_bytes()).unwrap();
-        let mut resp = String::new();
-        stream.read_to_string(&mut resp).unwrap();
+        let resp = http_post_rpc(rpc_addr, &payload);
 
         assert!(resp.contains("200 OK"));
         assert!(resp.contains(r#""height":1"#));
         assert!(resp.contains(r#""chain_id":9333"#));
         assert!(resp.contains("Access-Control-Allow-Origin: *"));
+
+        shutdown.store(true, Ordering::Relaxed);
+        let _ = fs::remove_file(wal);
+    }
+
+    #[test]
+    fn test_real_signed_utxo_transfer_mempool_and_double_spend_block() {
+        let wal = temp_wal("utxo_tx");
+        let alice_seed = SecretSeed::generate();
+        let alice_pk = alice_seed.public_key_bytes();
+        let alice_h160 = hash160(&alice_pk);
+        let alice_addr = encode_mainnet_address(&alice_pk);
+
+        let bob_seed = SecretSeed::generate();
+        let bob_pk = bob_seed.public_key_bytes();
+        let bob_h160 = hash160(&bob_pk);
+        let bob_addr = encode_mainnet_address(&bob_pk);
+
+        let state = NodeState::bootstrap(NetworkMode::Testnet, &wal, Some(alice_addr.clone())).unwrap();
+        let chain_id = state.mode.chain_id();
+        let node = Arc::new(Mutex::new(state));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let rpc_addr = spawn_rpc_server("127.0.0.1:0", Arc::clone(&node), Arc::clone(&shutdown)).unwrap();
+
+        // 1. Mine Block #1 so Alice receives a real spendable coinbase UTXO
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap();
+        let alice_utxos = node.lock().unwrap().utxos_for_hash160(&alice_h160);
+        assert_eq!(alice_utxos.len(), 1);
+        let (coinbase_op, coinbase_val) = alice_utxos[0];
+
+        // 2. Alice signs a real UTXO transfer sending 0.50 EQX to Bob + change back to Alice + 2000 atomic fee
+        let send_to_bob: u128 = 50_000_000;
+        let fee: u128 = 2_000;
+        let change = coinbase_val - send_to_bob - fee;
+
+        let valid_tx = SignedTransaction::sign_transfer(
+            &alice_seed,
+            chain_id,
+            vec![coinbase_op],
+            vec![
+                TxOutput {
+                    value_atomic: send_to_bob,
+                    script_hash160: bob_h160,
+                },
+                TxOutput {
+                    value_atomic: change,
+                    script_hash160: alice_h160,
+                },
+            ],
+        )
+        .unwrap();
+
+        // Submit via live HTTP JSON-RPC eqx_sendRawTransaction
+        let send_req = format!(
+            r#"{{"jsonrpc":"2.0","method":"eqx_sendRawTransaction","params":["{}"],"id":10}}"#,
+            to_hex(&valid_tx.encode_bytes())
+        );
+        let send_resp = http_post_rpc(rpc_addr, &send_req);
+        assert!(send_resp.contains("accepted_in_mempool"));
+
+        // 3. Double-spend attempt spending the exact same coinbase_op must be blocked
+        let double_spend_tx = SignedTransaction::sign_transfer(
+            &alice_seed,
+            chain_id,
+            vec![coinbase_op],
+            vec![TxOutput {
+                value_atomic: coinbase_val - fee,
+                script_hash160: alice_h160,
+            }],
+        )
+        .unwrap();
+        let ds_req = format!(
+            r#"{{"jsonrpc":"2.0","method":"eqx_sendRawTransaction","params":["{}"],"id":11}}"#,
+            to_hex(&double_spend_tx.encode_bytes())
+        );
+        let ds_resp = http_post_rpc(rpc_addr, &ds_req);
+        assert!(ds_resp.contains("Double-spend detected in mempool"));
+
+        // 4. Unauthorized theft attempt: Bob signing Alice's UTXO must fail ownership check
+        let theft_tx = SignedTransaction::sign_transfer(
+            &bob_seed,
+            chain_id,
+            vec![coinbase_op],
+            vec![TxOutput {
+                value_atomic: coinbase_val - fee,
+                script_hash160: bob_h160,
+            }],
+        )
+        .unwrap();
+        assert!(node.lock().unwrap().submit_transaction(theft_tx).is_err());
+
+        // 5. Mine Block #2 -> must confirm Alice->Bob tx, clear mempool, and credit Bob's balance
+        let blk2 = miner::mine_one_block(&node, &shutdown).unwrap().unwrap();
+        assert_eq!(blk2.0.height, 2);
+        assert_eq!(blk2.0.tx_count, 2);
+        assert_eq!(node.lock().unwrap().mempool.len(), 0);
+
+        let bal_req = format!(
+            r#"{{"jsonrpc":"2.0","method":"eqx_getBalance","params":["{}"],"id":12}}"#,
+            bob_addr
+        );
+        let bal_resp = http_post_rpc(rpc_addr, &bal_req);
+        assert!(bal_resp.contains(r#""balance_atomic":"50000000""#));
+        assert!(bal_resp.contains(r#""balance_eqx":"0.50000000""#));
 
         shutdown.store(true, Ordering::Relaxed);
         let _ = fs::remove_file(wal);

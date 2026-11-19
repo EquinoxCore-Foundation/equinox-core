@@ -108,3 +108,20 @@ pub fn to_hex(bytes: &[u8]) -> String {
     }
     out
 }
+
+pub fn from_hex(hex: &str) -> Result<Vec<u8>, String> {
+    let clean = hex.trim().strip_prefix("0x").unwrap_or(hex.trim());
+    if clean.len() % 2 != 0 {
+        return Err("Hex string must have even length".to_string());
+    }
+    let mut out = Vec::with_capacity(clean.len() / 2);
+    let bytes = clean.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let pair = std::str::from_utf8(&bytes[i..i + 2]).map_err(|_| "Invalid UTF-8 hex".to_string())?;
+        let val = u8::from_str_radix(pair, 16).map_err(|_| "Invalid hex character".to_string())?;
+        out.push(val);
+        i += 2;
+    }
+    Ok(out)
+}

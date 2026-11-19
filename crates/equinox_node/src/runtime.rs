@@ -9,7 +9,9 @@ use equinox_consensus::{
     calculate_block_subsidy, AsertConfig, BftFinalityGuard, U256, ATOMIC_UNITS_PER_EQX,
     CHAIN_ID_MAINNET, GENESIS_PREMINE_ATOMIC, MAX_SUPPLY_ATOMIC,
 };
-use equinox_crypto::address::{decode_and_verify_address, encode_mainnet_address};
+use equinox_crypto::address::{
+    decode_and_verify_address, encode_from_hash160, encode_mainnet_address,
+};
 use equinox_crypto::signer::SecretSeed;
 use equinox_network::banlist::BanManager;
 use equinox_network::nat::ConnectionSlotManager;
@@ -24,6 +26,8 @@ use crate::genesis::{
     build_mainnet_genesis_batch, to_hex, GenesisVaultSpec, DEVELOPER_VAULT_ATOMIC,
     FOUNDER_VAULT_ATOMIC, LIQUIDITY_VAULT_ATOMIC, MARKETING_VAULT_ATOMIC,
 };
+use crate::mempool::{Mempool, DEFAULT_MAX_MEMPOOL_TXS, DEFAULT_MIN_FEE_ATOMIC};
+use crate::tx::SignedTransaction;
 
 /// Safety switch: remains false during public Testnet until final offline Mainnet Ceremony.
 pub const MAINNET_ACTIVATED: bool = false;
@@ -73,6 +77,7 @@ pub struct BlockSummary {
 pub struct NodeState {
     pub mode: NetworkMode,
     pub storage: UtxoStorageEngine,
+    pub mempool: Mempool,
     pub asert: AsertConfig,
     pub bft: BftFinalityGuard,
     pub banlist: BanManager,
@@ -90,6 +95,7 @@ pub struct NodeState {
     pub last_block_timestamp: u64,
     pub total_txns: u64,
     pub balances: HashMap<String, u128>,
+    pub utxo_index: HashMap<[u8; 20], Vec<(OutPoint, u128)>>,
     pub recent_blocks: Vec<BlockSummary>,
 }
 
@@ -122,7 +128,6 @@ impl NodeState {
             );
         }
 
-        // Derive deterministic testnet genesis vaults so all testnet nodes share Block #0
         let testnet_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let seed = mnemonic_to_seed(testnet_phrase, "EquinoxTestnetGenesis9333")
             .map_err(|_| "Testnet genesis seed derivation failed".to_string())?;
@@ -148,10 +153,19 @@ impl NodeState {
         let mut storage = UtxoStorageEngine::open(wal_path, 50_000, mode == NetworkMode::Mainnet)
             .map_err(|e| format!("Failed to open WAL storage: {:?}", e))?;
 
+        let mut utxo_index: HashMap<[u8; 20], Vec<(OutPoint, u128)>> = HashMap::new();
         if storage.utxo_count() == 0 {
             storage
                 .apply_block_batch(&genesis.write_batch)
                 .map_err(|e| format!("Failed to commit Genesis Block #0: {:?}", e))?;
+        }
+        for (op, entry) in &genesis.write_batch.creates {
+            if storage.get_utxo(op).is_some() {
+                utxo_index
+                    .entry(entry.script_hash160)
+                    .or_default()
+                    .push((*op, entry.value_atomic));
+            }
         }
 
         let (miner_address, miner_h160) = match custom_miner_addr {
@@ -180,7 +194,6 @@ impl NodeState {
         balances.insert(vault_addrs[3].clone(), MARKETING_VAULT_ATOMIC);
         balances.entry(miner_address.clone()).or_insert(0);
 
-        // Accessible CPU PoW target for fast Testnet block discovery (~14 leading zero bits)
         let mut asert = AsertConfig::default();
         let initial_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x0003_FFFF_FFFF_FFFF]);
         asert.max_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x00FF_FFFF_FFFF_FFFF]);
@@ -203,6 +216,7 @@ impl NodeState {
         Ok(Self {
             mode,
             storage,
+            mempool: Mempool::new(DEFAULT_MAX_MEMPOOL_TXS, DEFAULT_MIN_FEE_ATOMIC),
             asert,
             bft: BftFinalityGuard::new(tip_hash),
             banlist: BanManager::mainnet_default(),
@@ -220,8 +234,19 @@ impl NodeState {
             last_block_timestamp: now,
             total_txns: 1 + tip_h,
             balances,
+            utxo_index,
             recent_blocks: vec![genesis_summary],
         })
+    }
+
+    pub fn submit_transaction(&mut self, tx: SignedTransaction) -> Result<([u8; 32], u128), String> {
+        let chain_id = self.mode.chain_id();
+        self.mempool
+            .validate_and_insert(tx, &mut self.storage, chain_id)
+    }
+
+    pub fn utxos_for_hash160(&self, h160: &[u8; 20]) -> Vec<(OutPoint, u128)> {
+        self.utxo_index.get(h160).cloned().unwrap_or_default()
     }
 
     pub fn commit_mined_block(
@@ -234,21 +259,54 @@ impl NodeState {
         let split = calculate_block_subsidy(self.already_mined_atomic)
             .map_err(|e| format!("Subsidy calculation error: {:?}", e))?;
 
+        let selected = self.mempool.select_for_block(500);
+        let mut total_fees: u128 = 0;
+        let mut spends: Vec<OutPoint> = Vec::new();
+        let mut spent_details: Vec<(OutPoint, UtxoEntry)> = Vec::new();
+        let mut tx_creates: Vec<(OutPoint, UtxoEntry)> = Vec::new();
+        let mut confirmed_txids: Vec<[u8; 32]> = Vec::with_capacity(selected.len());
+
+        for entry in &selected {
+            total_fees = total_fees.saturating_add(entry.fee_atomic);
+            for &op in &entry.spends {
+                if let Some(utxo) = self.storage.get_utxo(&op) {
+                    spends.push(op);
+                    spent_details.push((op, utxo));
+                }
+            }
+            for (vout, out) in entry.tx.outputs.iter().enumerate() {
+                tx_creates.push((
+                    OutPoint {
+                        txid: entry.txid,
+                        vout: vout as u32,
+                    },
+                    UtxoEntry {
+                        value_atomic: out.value_atomic,
+                        script_hash160: out.script_hash160,
+                        height,
+                        is_coinbase: false,
+                    },
+                ));
+            }
+            confirmed_txids.push(entry.txid);
+        }
+
         let mut tx_h = Sha256::new();
         tx_h.update(b"EQX_COINBASE_TX_V1");
         tx_h.update(&height.to_le_bytes());
         tx_h.update(&block_hash);
         let coinbase_txid: [u8; 32] = tx_h.finalize().into();
 
-        let mut creates = Vec::with_capacity(2);
-        if split.miner_reward > 0 {
+        let miner_total = split.miner_reward.saturating_add(total_fees);
+        let mut creates = Vec::with_capacity(2 + tx_creates.len());
+        if miner_total > 0 {
             creates.push((
                 OutPoint {
                     txid: coinbase_txid,
                     vout: 0,
                 },
                 UtxoEntry {
-                    value_atomic: split.miner_reward,
+                    value_atomic: miner_total,
                     script_hash160: self.miner_h160,
                     height,
                     is_coinbase: true,
@@ -269,30 +327,48 @@ impl NodeState {
                 },
             ));
         }
+        creates.extend(tx_creates);
 
         let batch = WriteBatch {
             height,
             block_hash,
-            spends: Vec::new(),
-            creates,
+            spends,
+            creates: creates.clone(),
         };
         self.storage
             .apply_block_batch(&batch)
             .map_err(|e| format!("WAL commit failed: {:?}", e))?;
 
+        // Update address balances & UTXO index atomically after WAL commit
+        for (op, spent_entry) in spent_details {
+            let owner_addr = encode_from_hash160(&spent_entry.script_hash160);
+            if let Some(bal) = self.balances.get_mut(&owner_addr) {
+                *bal = bal.saturating_sub(spent_entry.value_atomic);
+            }
+            if let Some(list) = self.utxo_index.get_mut(&spent_entry.script_hash160) {
+                list.retain(|(existing_op, _)| *existing_op != op);
+            }
+        }
+        for (op, new_entry) in creates {
+            let owner_addr = encode_from_hash160(&new_entry.script_hash160);
+            *self.balances.entry(owner_addr).or_insert(0) += new_entry.value_atomic;
+            self.utxo_index
+                .entry(new_entry.script_hash160)
+                .or_default()
+                .push((op, new_entry.value_atomic));
+        }
+
+        let included_user_txs = confirmed_txids.len() as u32;
+        self.mempool.remove_confirmed(&confirmed_txids);
+
         self.already_mined_atomic = self
             .already_mined_atomic
             .saturating_add(split.total_subsidy);
-        self.total_txns = self.total_txns.saturating_add(1);
+        self.total_txns = self
+            .total_txns
+            .saturating_add(1 + included_user_txs as u64);
         self.last_block_timestamp = timestamp;
 
-        *self
-            .balances
-            .entry(self.miner_address.clone())
-            .or_insert(0) += split.miner_reward;
-        *self.balances.entry(self.dao_address.clone()).or_insert(0) += split.dao_treasury_reward;
-
-        // Dynamically retarget next block using zero-floating-point ASERT3-2d
         if let Ok(next_t) = self.asert.calculate_next_target(
             self.anchor_height,
             self.anchor_timestamp,
@@ -308,9 +384,9 @@ impl NodeState {
             hash_hex: to_hex(&block_hash),
             nonce,
             timestamp,
-            miner_reward_atomic: split.miner_reward,
+            miner_reward_atomic: miner_total,
             dao_reward_atomic: split.dao_treasury_reward,
-            tx_count: 1,
+            tx_count: 1 + included_user_txs,
         };
         self.recent_blocks.push(summary.clone());
         if self.recent_blocks.len() > 50 {

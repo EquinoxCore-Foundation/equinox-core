@@ -21,10 +21,10 @@ jobs:
       - name: Install Stable Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run Tests Across All 6 Mainnet Crates
+      - name: Run Tests Across All 7 Mainnet Crates & Live Node
         shell: bash
         run: |
-          for crate in equinox_consensus equinox_crypto equinox_storage equinox_network equinox_wallet equinox_rpc; do
+          for crate in equinox_consensus equinox_crypto equinox_storage equinox_network equinox_wallet equinox_rpc equinox_node; do
             echo "=== Testing crates/$crate ==="
             cargo test --manifest-path "crates/$crate/Cargo.toml"
           done

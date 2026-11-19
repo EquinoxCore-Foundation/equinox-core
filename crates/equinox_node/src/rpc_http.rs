@@ -1,0 +1,238 @@
+﻿#![forbid(unsafe_code)]
+
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use equinox_consensus::MAX_SUPPLY_ATOMIC;
+use serde_json::{json, Value};
+
+use crate::genesis::to_hex;
+use crate::runtime::{NodeState, SharedNode};
+
+const MAX_HTTP_BYTES: usize = 262_144; // 256 KiB anti-DoS cap
+
+fn send_http_response(stream: &mut TcpStream, status: &str, body: &str) {
+    let resp = format!(
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status,
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(resp.as_bytes());
+    let _ = stream.flush();
+}
+
+fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
+    let req: Value = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(_) => {
+            return json!({
+                "jsonrpc": "2.0",
+                "error": { "code": -32700, "message": "Malformed JSON payload" },
+                "id": null
+            });
+        }
+    };
+
+    let id = req.get("id").cloned().unwrap_or(Value::Null);
+    let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
+    let params = req.get("params").cloned().unwrap_or(json!([]));
+
+    let st = node.lock().unwrap();
+    match method {
+        "eqx_getChainInfo" => {
+            let query_addr = params
+                .get(0)
+                .and_then(|v| v.as_str())
+                .unwrap_or(&st.miner_address);
+            let bal = st.balances.get(query_addr).copied().unwrap_or(0);
+            json!({
+                "jsonrpc": "2.0",
+                "result": {
+                    "network": st.mode.name(),
+                    "chain_id": st.mode.chain_id(),
+                    "height": st.storage.tip_height(),
+                    "tip_hash": to_hex(&st.storage.tip_hash()),
+                    "state_root": to_hex(&st.storage.compute_state_root()),
+                    "peers": st.slots.total_connected(),
+                    "miner_address": st.miner_address,
+                    "balance": bal as u64,
+                    "balance_eqx": NodeState::format_eqx(bal)
+                },
+                "id": id
+            })
+        }
+        "eqx_getMetrics" => json!({
+            "jsonrpc": "2.0",
+            "result": {
+                "network": st.mode.name(),
+                "chain_id": st.mode.chain_id(),
+                "tip_height": st.storage.tip_height(),
+                "finalized_height": st.bft.finalized_height,
+                "tip_hash": to_hex(&st.storage.tip_hash()),
+                "total_txns": st.total_txns,
+                "utxo_count": st.storage.utxo_count(),
+                "total_addresses": st.balances.len(),
+                "circulating_supply_atomic": st.circulating_supply_atomic().to_string(),
+                "max_supply_atomic": MAX_SUPPLY_ATOMIC.to_string(),
+                "connected_peers": st.slots.total_connected()
+            },
+            "id": id
+        }),
+        "eqx_getBalance" => {
+            let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            if !addr.starts_with('E') || addr.len() != 34 {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "error": { "code": -32602, "message": "Invalid 34-char EQX address" },
+                    "id": id
+                });
+            }
+            let bal = st.balances.get(addr).copied().unwrap_or(0);
+            json!({
+                "jsonrpc": "2.0",
+                "result": {
+                    "address": addr,
+                    "balance_atomic": bal.to_string(),
+                    "balance_eqx": NodeState::format_eqx(bal)
+                },
+                "id": id
+            })
+        }
+        "eqx_getRecentBlocks" => {
+            let blocks: Vec<Value> = st
+                .recent_blocks
+                .iter()
+                .rev()
+                .take(15)
+                .map(|b| {
+                    json!({
+                        "height": b.height,
+                        "hash": b.hash_hex,
+                        "nonce": b.nonce,
+                        "timestamp": b.timestamp,
+                        "miner_reward_eqx": NodeState::format_eqx(b.miner_reward_atomic),
+                        "dao_reward_eqx": NodeState::format_eqx(b.dao_reward_atomic),
+                        "tx_count": b.tx_count
+                    })
+                })
+                .collect();
+            json!({
+                "jsonrpc": "2.0",
+                "result": blocks,
+                "id": id
+            })
+        }
+        _ => json!({
+            "jsonrpc": "2.0",
+            "error": { "code": -32601, "message": format!("Method not found: {}", method) },
+            "id": id
+        }),
+    }
+}
+
+fn handle_http_client(mut stream: TcpStream, node: SharedNode) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+
+    let mut buf = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let mut header_end: Option<usize> = None;
+    let mut content_length: usize = 0;
+
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                if buf.len() + n > MAX_HTTP_BYTES {
+                    send_http_response(
+                        &mut stream,
+                        "413 Payload Too Large",
+                        r#"{"jsonrpc":"2.0","error":{"code":-32003,"message":"Payload too large"},"id":null}"#,
+                    );
+                    return;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if header_end.is_none() {
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        header_end = Some(pos + 4);
+                        let headers_str = String::from_utf8_lossy(&buf[..pos]);
+                        for line in headers_str.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.eq_ignore_ascii_case("Content-Length") {
+                                    content_length = v.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(h_end) = header_end {
+                    if buf.len() >= h_end + content_length {
+                        break;
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    let Some(h_end) = header_end else {
+        return;
+    };
+    let head = String::from_utf8_lossy(&buf[..h_end]);
+    if head.starts_with("OPTIONS ") {
+        send_http_response(&mut stream, "204 No Content", "");
+        return;
+    }
+
+    if head.starts_with("GET ") {
+        let info = dispatch_rpc(
+            br#"{"jsonrpc":"2.0","method":"eqx_getMetrics","params":[],"id":0}"#,
+            &node,
+        );
+        send_http_response(&mut stream, "200 OK", &info.to_string());
+        return;
+    }
+
+    let body = &buf[h_end..buf.len().min(h_end + content_length)];
+    let reply = dispatch_rpc(body, &node);
+    send_http_response(&mut stream, "200 OK", &reply.to_string());
+}
+
+/// Spawns live HTTP JSON-RPC 2.0 server on `bind_addr` (e.g. 127.0.0.1:18545).
+pub fn spawn_rpc_server(
+    bind_addr: &str,
+    node: SharedNode,
+    shutdown: Arc<AtomicBool>,
+) -> Result<SocketAddr, String> {
+    let listener =
+        TcpListener::bind(bind_addr).map_err(|e| format!("RPC bind {} failed: {}", bind_addr, e))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("RPC nonblocking error: {}", e))?;
+    let local_addr = listener.local_addr().map_err(|e| e.to_string())?;
+
+    thread::spawn(move || {
+        while !shutdown.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let n = Arc::clone(&node);
+                    thread::spawn(move || handle_http_client(stream, n));
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(30));
+                }
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    });
+
+    Ok(local_addr)
+}

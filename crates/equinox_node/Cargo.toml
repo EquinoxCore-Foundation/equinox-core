@@ -1,0 +1,17 @@
+﻿[package]
+name = "equinox_node"
+version = "1.0.0-rc1"
+edition = "2021"
+license = "MIT"
+description = "Unified Equinox Core (EQX) Live TCP P2P (Noise_XX), HTTP JSON-RPC 2.0, CPU PoW Miner & Genesis Ceremony Node."
+
+[dependencies]
+equinox_consensus = { path = "../equinox_consensus" }
+equinox_crypto = { path = "../equinox_crypto" }
+equinox_storage = { path = "../equinox_storage" }
+equinox_network = { path = "../equinox_network" }
+equinox_wallet = { path = "../equinox_wallet" }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[workspace]

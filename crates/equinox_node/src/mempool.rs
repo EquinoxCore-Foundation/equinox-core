@@ -60,7 +60,6 @@ impl Mempool {
             ));
         }
 
-        // 1. Canonical Ed25519 signature verification
         tx.verify_signatures()?;
 
         let txid = tx.txid();
@@ -68,7 +67,6 @@ impl Mempool {
             return Err("Transaction already in mempool".to_string());
         }
 
-        // 2. Verify every input exists in UTXO set, matches owner hash160, and has no double-spend
         let mut seen_in_tx = HashSet::with_capacity(tx.inputs.len());
         let mut total_in: u128 = 0;
         let mut spends = Vec::with_capacity(tx.inputs.len());
@@ -97,7 +95,6 @@ impl Mempool {
             spends.push(op);
         }
 
-        // 3. Verify outputs are non-zero and strictly bounded by total_in - min_fee
         let mut total_out: u128 = 0;
         for out in &tx.outputs {
             if out.value_atomic == 0 {
@@ -134,12 +131,18 @@ impl Mempool {
         Ok((txid, fee_atomic))
     }
 
-    /// Selects highest-fee valid transactions for inclusion in the next mined block.
     pub fn select_for_block(&self, max_count: usize) -> Vec<MempoolEntry> {
         let mut list: Vec<MempoolEntry> = self.pending.values().cloned().collect();
         list.sort_by(|a, b| b.fee_atomic.cmp(&a.fee_atomic).then_with(|| a.txid.cmp(&b.txid)));
         list.truncate(max_count);
         list
+    }
+
+    pub fn all_transactions(&self, max_count: usize) -> Vec<SignedTransaction> {
+        self.select_for_block(max_count)
+            .into_iter()
+            .map(|e| e.tx)
+            .collect()
     }
 
     pub fn remove_confirmed(&mut self, confirmed_txids: &[[u8; 32]]) {
@@ -150,5 +153,20 @@ impl Mempool {
                 }
             }
         }
+    }
+
+    /// Removes any conflicting pending txs whose inputs were spent by an externally synced block.
+    pub fn prune_spent_outpoints(&mut self, newly_spent: &[OutPoint]) {
+        if newly_spent.is_empty() {
+            return;
+        }
+        let spent_set: HashSet<OutPoint> = newly_spent.iter().copied().collect();
+        let to_remove: Vec<[u8; 32]> = self
+            .pending
+            .iter()
+            .filter(|(_, entry)| entry.spends.iter().any(|op| spent_set.contains(op)))
+            .map(|(txid, _)| *txid)
+            .collect();
+        self.remove_confirmed(&to_remove);
     }
 }

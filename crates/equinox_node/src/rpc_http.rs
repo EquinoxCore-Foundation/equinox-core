@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use equinox_consensus::MAX_SUPPLY_ATOMIC;
 use equinox_crypto::address::decode_and_verify_address;
+use equinox_network::protocol::WireMessage;
 use serde_json::{json, Value};
 
 use crate::genesis::{from_hex, to_hex};
-use crate::runtime::{NodeState, SharedNode};
+use crate::runtime::{NodeState, PeerBroadcaster, SharedNode};
 use crate::tx::SignedTransaction;
 
-const MAX_HTTP_BYTES: usize = 262_144; // 256 KiB anti-DoS cap
+const MAX_HTTP_BYTES: usize = 262_144;
 
 fn send_http_response(stream: &mut TcpStream, status: &str, body: &str) {
     let resp = format!(
@@ -28,7 +29,7 @@ fn send_http_response(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = stream.flush();
 }
 
-fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
+fn dispatch_rpc(body: &[u8], node: &SharedNode, broadcaster: &Arc<PeerBroadcaster>) -> Value {
     let req: Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => {
@@ -44,188 +45,197 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode) -> Value {
     let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(json!([]));
 
-    let mut st = node.lock().unwrap();
-    match method {
-        "eqx_getChainInfo" => {
-            let query_addr = params
-                .get(0)
-                .and_then(|v| v.as_str())
-                .unwrap_or(&st.miner_address);
-            let bal = st.balances.get(query_addr).copied().unwrap_or(0);
-            json!({
+    let mut broadcast_tx: Option<Vec<u8>> = None;
+
+    let reply = {
+        let mut st = node.lock().unwrap();
+        match method {
+            "eqx_getChainInfo" => {
+                let query_addr = params
+                    .get(0)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&st.miner_address);
+                let bal = st.balances.get(query_addr).copied().unwrap_or(0);
+                json!({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "network": st.mode.name(),
+                        "chain_id": st.mode.chain_id(),
+                        "height": st.storage.tip_height(),
+                        "tip_hash": to_hex(&st.storage.tip_hash()),
+                        "state_root": to_hex(&st.storage.compute_state_root()),
+                        "peers": st.slots.total_connected(),
+                        "pending_txns": st.mempool.len(),
+                        "miner_address": st.miner_address,
+                        "dao_address": st.dao_address,
+                        "balance": bal as u64,
+                        "balance_eqx": NodeState::format_eqx(bal)
+                    },
+                    "id": id
+                })
+            }
+            "eqx_getMetrics" => json!({
                 "jsonrpc": "2.0",
                 "result": {
                     "network": st.mode.name(),
                     "chain_id": st.mode.chain_id(),
-                    "height": st.storage.tip_height(),
+                    "tip_height": st.storage.tip_height(),
+                    "finalized_height": st.bft.finalized_height,
                     "tip_hash": to_hex(&st.storage.tip_hash()),
-                    "state_root": to_hex(&st.storage.compute_state_root()),
-                    "peers": st.slots.total_connected(),
+                    "total_txns": st.total_txns,
                     "pending_txns": st.mempool.len(),
-                    "miner_address": st.miner_address,
-                    "dao_address": st.dao_address,
-                    "balance": bal as u64,
-                    "balance_eqx": NodeState::format_eqx(bal)
+                    "utxo_count": st.storage.utxo_count(),
+                    "total_addresses": st.balances.len(),
+                    "circulating_supply_atomic": st.circulating_supply_atomic().to_string(),
+                    "max_supply_atomic": MAX_SUPPLY_ATOMIC.to_string(),
+                    "connected_peers": st.slots.total_connected()
                 },
                 "id": id
-            })
-        }
-        "eqx_getMetrics" => json!({
-            "jsonrpc": "2.0",
-            "result": {
-                "network": st.mode.name(),
-                "chain_id": st.mode.chain_id(),
-                "tip_height": st.storage.tip_height(),
-                "finalized_height": st.bft.finalized_height,
-                "tip_hash": to_hex(&st.storage.tip_hash()),
-                "total_txns": st.total_txns,
-                "pending_txns": st.mempool.len(),
-                "utxo_count": st.storage.utxo_count(),
-                "total_addresses": st.balances.len(),
-                "circulating_supply_atomic": st.circulating_supply_atomic().to_string(),
-                "max_supply_atomic": MAX_SUPPLY_ATOMIC.to_string(),
-                "connected_peers": st.slots.total_connected()
-            },
-            "id": id
-        }),
-        "eqx_getMempoolInfo" => json!({
-            "jsonrpc": "2.0",
-            "result": {
-                "pending_txns": st.mempool.len(),
-                "min_fee_atomic": st.mempool.min_fee_atomic().to_string()
-            },
-            "id": id
-        }),
-        "eqx_getBalance" => {
-            let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
-            if !addr.starts_with('E') || addr.len() != 34 {
-                return json!({
-                    "jsonrpc": "2.0",
-                    "error": { "code": -32602, "message": "Invalid 34-char EQX address" },
-                    "id": id
-                });
-            }
-            let bal = st.balances.get(addr).copied().unwrap_or(0);
-            json!({
+            }),
+            "eqx_getMempoolInfo" => json!({
                 "jsonrpc": "2.0",
                 "result": {
-                    "address": addr,
-                    "balance_atomic": bal.to_string(),
-                    "balance_eqx": NodeState::format_eqx(bal)
+                    "pending_txns": st.mempool.len(),
+                    "min_fee_atomic": st.mempool.min_fee_atomic().to_string()
                 },
                 "id": id
-            })
-        }
-        "eqx_getUtxos" => {
-            let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
-            let h160 = match decode_and_verify_address(addr) {
-                Ok(h) => h,
-                Err(_) => {
-                    return json!({
+            }),
+            "eqx_getBalance" => {
+                let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+                if !addr.starts_with('E') || addr.len() != 34 {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": "Invalid 34-char EQX address" },
+                        "id": id
+                    })
+                } else {
+                    let bal = st.balances.get(addr).copied().unwrap_or(0);
+                    json!({
+                        "jsonrpc": "2.0",
+                        "result": {
+                            "address": addr,
+                            "balance_atomic": bal.to_string(),
+                            "balance_eqx": NodeState::format_eqx(bal)
+                        },
+                        "id": id
+                    })
+                }
+            }
+            "eqx_getUtxos" => {
+                let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+                match decode_and_verify_address(addr) {
+                    Ok(h160) => {
+                        let list: Vec<Value> = st
+                            .utxos_for_hash160(&h160)
+                            .into_iter()
+                            .map(|(op, val)| {
+                                json!({
+                                    "txid": to_hex(&op.txid),
+                                    "vout": op.vout,
+                                    "value_atomic": val.to_string()
+                                })
+                            })
+                            .collect();
+                        json!({ "jsonrpc": "2.0", "result": list, "id": id })
+                    }
+                    Err(_) => json!({
                         "jsonrpc": "2.0",
                         "error": { "code": -32602, "message": "Invalid Base58Check EQX address" },
                         "id": id
-                    });
+                    }),
                 }
-            };
-            let list: Vec<Value> = st
-                .utxos_for_hash160(&h160)
-                .into_iter()
-                .map(|(op, val)| {
-                    json!({
-                        "txid": to_hex(&op.txid),
-                        "vout": op.vout,
-                        "value_atomic": val.to_string()
-                    })
-                })
-                .collect();
-            json!({
-                "jsonrpc": "2.0",
-                "result": list,
-                "id": id
-            })
-        }
-        "eqx_sendRawTransaction" => {
-            let raw_hex = match params.get(0).and_then(|v| v.as_str()) {
-                Some(h) => h,
-                None => {
-                    return json!({
-                        "jsonrpc": "2.0",
-                        "error": { "code": -32602, "message": "Expected raw transaction hex string as params[0]" },
-                        "id": id
-                    });
-                }
-            };
-            let raw_bytes = match from_hex(raw_hex) {
-                Ok(b) => b,
-                Err(e) => {
-                    return json!({
-                        "jsonrpc": "2.0",
-                        "error": { "code": -32602, "message": e },
-                        "id": id
-                    });
-                }
-            };
-            let tx = match SignedTransaction::decode_bytes(&raw_bytes) {
-                Ok(t) => t,
-                Err(e) => {
-                    return json!({
-                        "jsonrpc": "2.0",
-                        "error": { "code": -32602, "message": e },
-                        "id": id
-                    });
-                }
-            };
-            match st.submit_transaction(tx) {
-                Ok((txid, fee)) => json!({
-                    "jsonrpc": "2.0",
-                    "result": {
-                        "txid": to_hex(&txid),
-                        "fee_atomic": fee.to_string(),
-                        "status": "accepted_in_mempool"
-                    },
-                    "id": id
-                }),
-                Err(reason) => json!({
-                    "jsonrpc": "2.0",
-                    "error": { "code": -32010, "message": reason },
-                    "id": id
-                }),
             }
-        }
-        "eqx_getRecentBlocks" => {
-            let blocks: Vec<Value> = st
-                .recent_blocks
-                .iter()
-                .rev()
-                .take(15)
-                .map(|b| {
-                    json!({
-                        "height": b.height,
-                        "hash": b.hash_hex,
-                        "nonce": b.nonce,
-                        "timestamp": b.timestamp,
-                        "miner_reward_eqx": NodeState::format_eqx(b.miner_reward_atomic),
-                        "dao_reward_eqx": NodeState::format_eqx(b.dao_reward_atomic),
-                        "tx_count": b.tx_count
+            "eqx_sendRawTransaction" => {
+                let raw_hex = match params.get(0).and_then(|v| v.as_str()) {
+                    Some(h) => h,
+                    None => {
+                        return json!({
+                            "jsonrpc": "2.0",
+                            "error": { "code": -32602, "message": "Expected raw transaction hex string as params[0]" },
+                            "id": id
+                        });
+                    }
+                };
+                let raw_bytes = match from_hex(raw_hex) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return json!({
+                            "jsonrpc": "2.0",
+                            "error": { "code": -32602, "message": e },
+                            "id": id
+                        });
+                    }
+                };
+                let tx = match SignedTransaction::decode_bytes(&raw_bytes) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return json!({
+                            "jsonrpc": "2.0",
+                            "error": { "code": -32602, "message": e },
+                            "id": id
+                        });
+                    }
+                };
+                match st.submit_transaction(tx) {
+                    Ok((txid, fee)) => {
+                        broadcast_tx = Some(raw_bytes);
+                        json!({
+                            "jsonrpc": "2.0",
+                            "result": {
+                                "txid": to_hex(&txid),
+                                "fee_atomic": fee.to_string(),
+                                "status": "accepted_in_mempool"
+                            },
+                            "id": id
+                        })
+                    }
+                    Err(reason) => json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32010, "message": reason },
+                        "id": id
+                    }),
+                }
+            }
+            "eqx_getRecentBlocks" => {
+                let blocks: Vec<Value> = st
+                    .recent_blocks
+                    .iter()
+                    .rev()
+                    .take(15)
+                    .map(|b| {
+                        json!({
+                            "height": b.height,
+                            "hash": b.hash_hex,
+                            "nonce": b.nonce,
+                            "timestamp": b.timestamp,
+                            "miner_reward_eqx": NodeState::format_eqx(b.miner_reward_atomic),
+                            "dao_reward_eqx": NodeState::format_eqx(b.dao_reward_atomic),
+                            "tx_count": b.tx_count
+                        })
                     })
-                })
-                .collect();
-            json!({
+                    .collect();
+                json!({ "jsonrpc": "2.0", "result": blocks, "id": id })
+            }
+            _ => json!({
                 "jsonrpc": "2.0",
-                "result": blocks,
+                "error": { "code": -32601, "message": format!("Method not found: {}", method) },
                 "id": id
-            })
+            }),
         }
-        _ => json!({
-            "jsonrpc": "2.0",
-            "error": { "code": -32601, "message": format!("Method not found: {}", method) },
-            "id": id
-        }),
+    };
+
+    if let Some(raw_tx) = broadcast_tx {
+        broadcaster.broadcast(WireMessage::TxData(raw_tx), None);
     }
+
+    reply
 }
 
-fn handle_http_client(mut stream: TcpStream, node: SharedNode) {
+fn handle_http_client(
+    mut stream: TcpStream,
+    node: SharedNode,
+    broadcaster: Arc<PeerBroadcaster>,
+) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
@@ -284,20 +294,21 @@ fn handle_http_client(mut stream: TcpStream, node: SharedNode) {
         let info = dispatch_rpc(
             br#"{"jsonrpc":"2.0","method":"eqx_getMetrics","params":[],"id":0}"#,
             &node,
+            &broadcaster,
         );
         send_http_response(&mut stream, "200 OK", &info.to_string());
         return;
     }
 
     let body = &buf[h_end..buf.len().min(h_end + content_length)];
-    let reply = dispatch_rpc(body, &node);
+    let reply = dispatch_rpc(body, &node, &broadcaster);
     send_http_response(&mut stream, "200 OK", &reply.to_string());
 }
 
-/// Spawns live HTTP JSON-RPC 2.0 server on `bind_addr` (e.g. 127.0.0.1:18545).
 pub fn spawn_rpc_server(
     bind_addr: &str,
     node: SharedNode,
+    broadcaster: Arc<PeerBroadcaster>,
     shutdown: Arc<AtomicBool>,
 ) -> Result<SocketAddr, String> {
     let listener =
@@ -312,7 +323,8 @@ pub fn spawn_rpc_server(
             match listener.accept() {
                 Ok((stream, _)) => {
                     let n = Arc::clone(&node);
-                    thread::spawn(move || handle_http_client(stream, n));
+                    let b = Arc::clone(&broadcaster);
+                    thread::spawn(move || handle_http_client(stream, n, b));
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(30));

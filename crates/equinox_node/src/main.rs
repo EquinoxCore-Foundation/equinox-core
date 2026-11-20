@@ -1,4 +1,4 @@
-﻿#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 
 mod block;
 mod genesis;
@@ -203,6 +203,7 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
     let mut mode = NetworkMode::Testnet;
     let mut enable_mine = false;
     let mut p2p_port: u16 = 19333;
+    let mut rpc_host = String::from("127.0.0.1");
     let mut rpc_port: u16 = 18545;
     let mut miner_addr: Option<String> = None;
     let mut peers_to_dial: Vec<SocketAddr> = Vec::new();
@@ -218,6 +219,10 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
                 p2p_port = args[i + 1]
                     .parse()
                     .map_err(|_| "Invalid --p2p-port value".to_string())?;
+                i += 1;
+            }
+            "--rpc-host" if i + 1 < args.len() => {
+                rpc_host = args[i + 1].clone();
                 i += 1;
             }
             "--rpc-port" if i + 1 < args.len() => {
@@ -255,7 +260,7 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
     let shutdown = Arc::new(AtomicBool::new(false));
 
     let p2p_bind = format!("0.0.0.0:{}", p2p_port);
-    let rpc_bind = format!("127.0.0.1:{}", rpc_port);
+    let rpc_bind = format!("{}:{}", rpc_host, rpc_port);
 
     let p2p_addr = spawn_p2p_listener(
         &p2p_bind,

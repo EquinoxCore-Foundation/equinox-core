@@ -1,10 +1,11 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'eqx_v2_rpc_sheet.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -202,7 +203,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
           _buildP2pMeshRadarView(),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(),
+      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [EqxV2QuickBar(activeRpcEndpoint: _activeRpcEndpoint), _buildBottomNav()]),
     );
   }
 

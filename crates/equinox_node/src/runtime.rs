@@ -1,4 +1,4 @@
-﻿#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
@@ -290,8 +290,11 @@ impl NodeState {
         balances.entry(miner_address.clone()).or_insert(0);
 
         let mut asert = AsertConfig::default();
-        let initial_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x0003_FFFF_FFFF_FFFF]);
-        asert.max_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x00FF_FFFF_FFFF_FFFF]);
+        #[cfg(test)]
+        let initial_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x3FFF_FFFF_FFFF_FFFF]);
+        #[cfg(not(test))]
+        let initial_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x01FF_FFFF_FFFF_FFFF]);
+        asert.max_target = U256([u64::MAX, u64::MAX, u64::MAX, 0x3FFF_FFFF_FFFF_FFFF]);
 
         let node_key = NodeStaticKey::generate().map_err(|_| "Noise keygen failed".to_string())?;
         let tip_h = storage.tip_height();

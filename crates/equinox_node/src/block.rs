@@ -1,13 +1,24 @@
-﻿#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 
-use sha2::{Digest, Sha256};
+use argon2::{Algorithm, Argon2, Params, Version};
 
 use crate::tx::SignedTransaction;
 
 pub const MAX_BLOCK_TXS: usize = 500;
 pub const MAX_SINGLE_TX_BYTES: usize = 60_000;
 
-/// Computes deterministic Double-SHA256 PoW header hash shared by Miner and P2P Sync Verifier.
+/// Memory-hard ASIC-resistant PoW parameters:
+/// - Live Testnet/Mainnet: 16 MiB RAM per hash (blocks SHA-256 ASICs completely)
+/// - Debug unit tests: 256 KiB RAM per hash (same Argon2id algorithm, fast CI execution)
+#[cfg(not(test))]
+pub const POW_MEMORY_KIB: u32 = 16_384;
+#[cfg(test)]
+pub const POW_MEMORY_KIB: u32 = 256;
+
+pub const POW_TIME_COST: u32 = 1;
+pub const POW_LANES: u32 = 1;
+
+/// Computes deterministic Memory-Hard Argon2id PoW header hash shared by Miner and P2P Sync Verifier.
 pub fn compute_header_pow_hash(
     height: u64,
     prev_hash: &[u8; 32],
@@ -16,19 +27,24 @@ pub fn compute_header_pow_hash(
     timestamp: u64,
     nonce: u64,
 ) -> [u8; 32] {
-    let mut h1 = Sha256::new();
-    h1.update(b"EQX_POW_HDR_V1");
-    h1.update(&height.to_le_bytes());
-    h1.update(prev_hash);
-    h1.update(state_root);
-    h1.update(miner_h160);
-    h1.update(&timestamp.to_le_bytes());
-    h1.update(&nonce.to_le_bytes());
-    let first = h1.finalize();
+    let mut header_bytes = Vec::with_capacity(127);
+    header_bytes.extend_from_slice(b"EQX_ARGON2ID_POW_V2");
+    header_bytes.extend_from_slice(&height.to_le_bytes());
+    header_bytes.extend_from_slice(prev_hash);
+    header_bytes.extend_from_slice(state_root);
+    header_bytes.extend_from_slice(miner_h160);
+    header_bytes.extend_from_slice(&timestamp.to_le_bytes());
+    header_bytes.extend_from_slice(&nonce.to_le_bytes());
 
-    let mut h2 = Sha256::new();
-    h2.update(first);
-    h2.finalize().into()
+    let params = Params::new(POW_MEMORY_KIB, POW_TIME_COST, POW_LANES, Some(32))
+        .expect("Valid Argon2id PoW parameters");
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+    let mut out = [0u8; 32];
+    argon2
+        .hash_password_into(&header_bytes, prev_hash, &mut out)
+        .expect("Argon2id PoW hashing failed");
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,5 +130,24 @@ impl FullBlock {
             nonce,
             txs,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_argon2id_pow_determinism_and_avalanche() {
+        let prev = [0x11u8; 32];
+        let root = [0x22u8; 32];
+        let miner = [0x33u8; 20];
+
+        let h1 = compute_header_pow_hash(1, &prev, &root, &miner, 1_795_000_015, 42);
+        let h2 = compute_header_pow_hash(1, &prev, &root, &miner, 1_795_000_015, 42);
+        let h3 = compute_header_pow_hash(1, &prev, &root, &miner, 1_795_000_015, 43);
+
+        assert_eq!(h1, h2);
+        assert_ne!(h1, h3);
     }
 }

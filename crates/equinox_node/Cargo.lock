@@ -271,6 +271,7 @@ dependencies = [
 name = "equinox_node"
 version = "1.0.0-rc1"
 dependencies = [
+ "argon2",
  "equinox_consensus",
  "equinox_crypto",
  "equinox_network",

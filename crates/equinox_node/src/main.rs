@@ -202,6 +202,7 @@ fn run_ceremony_preview() -> Result<(), String> {
 fn run_live_node(args: &[String]) -> Result<(), String> {
     let mut mode = NetworkMode::Testnet;
     let mut enable_mine = false;
+    let mut mine_threads: usize = thread::available_parallelism().map(|n| (n.get() / 2).max(1)).unwrap_or(2);
     let mut p2p_port: u16 = 19333;
     let mut rpc_host = String::from("127.0.0.1");
     let mut rpc_port: u16 = 18545;
@@ -215,6 +216,13 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
             "--mainnet" => mode = NetworkMode::Mainnet,
             "--testnet" => mode = NetworkMode::Testnet,
             "--mine" => enable_mine = true,
+            "--threads" if i + 1 < args.len() => {
+                mine_threads = args[i + 1]
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid --threads value".to_string())?
+                    .clamp(1, 64);
+                i += 1;
+            }
             "--p2p-port" if i + 1 < args.len() => {
                 p2p_port = args[i + 1]
                     .parse()
@@ -307,6 +315,7 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
             Arc::clone(&node),
             Arc::clone(&broadcaster),
             Arc::clone(&shutdown),
+            mine_threads,
         );
     }
 

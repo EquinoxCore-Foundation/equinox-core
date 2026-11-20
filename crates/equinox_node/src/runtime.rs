@@ -13,7 +13,7 @@ use equinox_consensus::{
     CHAIN_ID_MAINNET, GENESIS_PREMINE_ATOMIC, MAX_SUPPLY_ATOMIC,
 };
 use equinox_crypto::address::{
-    decode_and_verify_address, encode_from_hash160, encode_mainnet_address, hash160,
+    decode_and_verify_address, encode_from_hash160, encode_mainnet_address,
 };
 use equinox_crypto::signer::SecretSeed;
 use equinox_network::banlist::BanManager;
@@ -32,7 +32,11 @@ use crate::genesis::{
     FOUNDER_VAULT_ATOMIC, LIQUIDITY_VAULT_ATOMIC, MARKETING_VAULT_ATOMIC,
 };
 use crate::mempool::{Mempool, DEFAULT_MAX_MEMPOOL_TXS, DEFAULT_MIN_FEE_ATOMIC};
-use crate::tx::SignedTransaction;
+use crate::script::{
+    normalize_eqx_name, DataAnchor, DocumentProofRecord, NameRecord, NAME_LEASE_BLOCKS,
+    NAME_REGISTRATION_MIN_FEE_ATOMIC,
+};
+use crate::tx::{OutputPayload, SignedTransaction};
 
 /// Safety switch: remains false during public Testnet until final offline Mainnet Ceremony.
 pub const MAINNET_ACTIVATED: bool = false;
@@ -79,7 +83,6 @@ pub struct BlockSummary {
     pub tx_count: u32,
 }
 
-/// Lock-isolated fanout hub pushing mined blocks & mempool transactions to all live P2P peers.
 pub struct PeerBroadcaster {
     next_id: Mutex<u64>,
     peers: Mutex<Vec<(u64, Sender<WireMessage>)>>,
@@ -141,6 +144,8 @@ pub struct NodeState {
     pub total_txns: u64,
     pub balances: HashMap<String, u128>,
     pub utxo_index: HashMap<[u8; 20], Vec<(OutPoint, u128)>>,
+    pub name_registry: HashMap<String, NameRecord>,
+    pub document_proofs: HashMap<[u8; 32], DocumentProofRecord>,
     pub blocks_by_height: BTreeMap<u64, FullBlock>,
     pub blocks_path: PathBuf,
     pub recent_blocks: Vec<BlockSummary>,
@@ -324,12 +329,13 @@ impl NodeState {
             total_txns: 1,
             balances,
             utxo_index,
+            name_registry: HashMap::new(),
+            document_proofs: HashMap::new(),
             blocks_by_height: BTreeMap::new(),
             blocks_path: blocks_path.clone(),
             recent_blocks: vec![genesis_summary],
         };
 
-        // Restore persisted full blocks & deterministic ASERT state after restart
         if tip_h > 0 {
             for blk in load_saved_blocks(&blocks_path) {
                 if blk.height > 0 && blk.height <= tip_h {
@@ -341,12 +347,50 @@ impl NodeState {
         Ok(state)
     }
 
+    fn index_anchors_from_tx(&mut self, tx: &SignedTransaction, height: u64, timestamp: u64) {
+        let txid_hex = to_hex(&tx.txid());
+        for out in &tx.outputs {
+            if let OutputPayload::Anchor(anchor) = &out.payload {
+                match anchor {
+                    DataAnchor::DocumentProof { doc_hash, metadata } => {
+                        self.document_proofs
+                            .entry(*doc_hash)
+                            .or_insert_with(|| DocumentProofRecord {
+                                doc_hash_hex: to_hex(doc_hash),
+                                metadata_utf8: String::from_utf8_lossy(metadata).to_string(),
+                                block_height: height,
+                                timestamp,
+                                txid_hex: txid_hex.clone(),
+                            });
+                    }
+                    DataAnchor::NameRegister { name, owner_h160 } => {
+                        self.name_registry.insert(
+                            name.clone(),
+                            NameRecord {
+                                name: name.clone(),
+                                owner_h160: *owner_h160,
+                                owner_address: encode_from_hash160(owner_h160),
+                                registered_height: height,
+                                expires_height: height.saturating_add(NAME_LEASE_BLOCKS),
+                                txid_hex: txid_hex.clone(),
+                            },
+                        );
+                    }
+                    DataAnchor::RawData(_) => {}
+                }
+            }
+        }
+    }
+
     fn replay_loaded_block_metadata(&mut self, blk: FullBlock) {
         let block_hash = blk.pow_hash();
         let split = match calculate_block_subsidy(self.already_mined_atomic) {
             Ok(s) => s,
             Err(_) => return,
         };
+        for tx in &blk.txs {
+            self.index_anchors_from_tx(tx, blk.height, blk.timestamp);
+        }
         self.already_mined_atomic = self
             .already_mined_atomic
             .saturating_add(split.total_subsidy);
@@ -387,8 +431,23 @@ impl NodeState {
 
     pub fn submit_transaction(&mut self, tx: SignedTransaction) -> Result<([u8; 32], u128), String> {
         let chain_id = self.mode.chain_id();
-        self.mempool
-            .validate_and_insert(tx, &mut self.storage, chain_id)
+        let next_height = self.storage.tip_height().saturating_add(1);
+        self.mempool.validate_and_insert(
+            tx,
+            &mut self.storage,
+            chain_id,
+            next_height,
+            &self.name_registry,
+        )
+    }
+
+    pub fn resolve_name(&self, query: &str) -> Result<Option<&NameRecord>, String> {
+        let normalized = normalize_eqx_name(query)?;
+        let tip = self.storage.tip_height();
+        Ok(self
+            .name_registry
+            .get(&normalized)
+            .filter(|rec| rec.expires_height > tip))
     }
 
     pub fn utxos_for_hash160(&self, h160: &[u8; 20]) -> Vec<(OutPoint, u128)> {
@@ -404,7 +463,6 @@ impl NodeState {
             .collect()
     }
 
-    /// Commits a locally mined block using the exact same verifier as externally synced blocks.
     pub fn commit_mined_block(
         &mut self,
         height: u64,
@@ -433,7 +491,6 @@ impl NodeState {
         self.apply_verified_block(full_block)
     }
 
-    /// Independently verifies and applies a FullBlock received from a remote Noise_XX peer.
     pub fn apply_synced_block(
         &mut self,
         block: FullBlock,
@@ -453,7 +510,6 @@ impl NodeState {
         Ok(Some(applied))
     }
 
-    /// Single deterministic block validation & state transition engine shared by local mining and P2P sync.
     fn apply_verified_block(&mut self, block: FullBlock) -> Result<(BlockSummary, FullBlock), String> {
         let expected_height = self.storage.tip_height().saturating_add(1);
         if block.height != expected_height {
@@ -478,21 +534,24 @@ impl NodeState {
         let min_fee = self.mempool.min_fee_atomic();
 
         let mut seen_spends: HashSet<OutPoint> = HashSet::new();
+        let mut seen_block_names: HashSet<String> = HashSet::new();
         let mut total_fees: u128 = 0;
         let mut spends: Vec<OutPoint> = Vec::new();
         let mut spent_details: Vec<(OutPoint, UtxoEntry)> = Vec::new();
         let mut tx_creates: Vec<(OutPoint, UtxoEntry)> = Vec::new();
         let mut confirmed_txids: Vec<[u8; 32]> = Vec::with_capacity(block.txs.len());
+        let mut newly_registered_names: Vec<String> = Vec::new();
 
         for tx in &block.txs {
             if tx.chain_id != chain_id {
                 return Err("Block contains transaction with wrong chain_id".to_string());
             }
-            tx.verify_signatures()?;
+            tx.verify_structure_and_outputs()?;
             let txid = tx.txid();
+            let sighash = tx.sighash();
 
             let mut total_in: u128 = 0;
-            for inp in &tx.inputs {
+            for (idx, inp) in tx.inputs.iter().enumerate() {
                 let op = inp.outpoint();
                 if !seen_spends.insert(op) {
                     return Err("Double-spend detected inside synced block".to_string());
@@ -501,9 +560,7 @@ impl NodeState {
                     .storage
                     .get_utxo(&op)
                     .ok_or_else(|| "Block tx references missing or spent UTXO".to_string())?;
-                if hash160(&inp.pubkey) != utxo.script_hash160 {
-                    return Err("Block tx pubkey does not match UTXO owner".to_string());
-                }
+                tx.verify_input_proof(idx, &sighash, utxo.script_hash160, block.height)?;
                 total_in = total_in
                     .checked_add(utxo.value_atomic)
                     .ok_or_else(|| "Block tx input overflow".to_string())?;
@@ -512,32 +569,58 @@ impl NodeState {
             }
 
             let mut total_out: u128 = 0;
+            let mut tx_min_fee = min_fee;
+
             for (vout, out) in tx.outputs.iter().enumerate() {
-                if out.value_atomic == 0 {
-                    return Err("Block tx contains zero-value output".to_string());
+                match &out.payload {
+                    OutputPayload::Lock(cond) => {
+                        total_out = total_out
+                            .checked_add(out.value_atomic)
+                            .ok_or_else(|| "Block tx output overflow".to_string())?;
+                        tx_creates.push((
+                            OutPoint {
+                                txid,
+                                vout: vout as u32,
+                            },
+                            UtxoEntry {
+                                value_atomic: out.value_atomic,
+                                script_hash160: cond.script_hash160(),
+                                height: block.height,
+                                is_coinbase: false,
+                            },
+                        ));
+                    }
+                    OutputPayload::Anchor(anchor) => {
+                        if let DataAnchor::NameRegister { name, owner_h160 } = anchor {
+                            if !seen_block_names.insert(name.clone()) {
+                                return Err(
+                                    "Duplicate @name.eqx registration inside block".to_string()
+                                );
+                            }
+                            if let Some(existing) = self.name_registry.get(name) {
+                                if existing.expires_height > block.height {
+                                    let is_owner_renewal = existing.owner_h160 == *owner_h160
+                                        && tx.has_signer_hash160(&existing.owner_h160);
+                                    if !is_owner_renewal {
+                                        return Err(format!(
+                                            "Block tx attempts to hijack active name @{}.eqx",
+                                            name
+                                        ));
+                                    }
+                                }
+                            }
+                            tx_min_fee = tx_min_fee.max(NAME_REGISTRATION_MIN_FEE_ATOMIC);
+                            newly_registered_names.push(name.clone());
+                        }
+                    }
                 }
-                total_out = total_out
-                    .checked_add(out.value_atomic)
-                    .ok_or_else(|| "Block tx output overflow".to_string())?;
-                tx_creates.push((
-                    OutPoint {
-                        txid,
-                        vout: vout as u32,
-                    },
-                    UtxoEntry {
-                        value_atomic: out.value_atomic,
-                        script_hash160: out.script_hash160,
-                        height: block.height,
-                        is_coinbase: false,
-                    },
-                ));
             }
 
             if total_in < total_out {
                 return Err("Block tx outputs exceed inputs".to_string());
             }
             let fee = total_in - total_out;
-            if fee < min_fee {
+            if fee < tx_min_fee {
                 return Err("Block tx fee below minimum policy".to_string());
             }
             total_fees = total_fees.saturating_add(fee);
@@ -613,9 +696,14 @@ impl NodeState {
                 .push((op, new_entry.value_atomic));
         }
 
+        for tx in &block.txs {
+            self.index_anchors_from_tx(tx, block.height, block.timestamp);
+        }
+
         let included_user_txs = confirmed_txids.len() as u32;
         self.mempool.remove_confirmed(&confirmed_txids);
         self.mempool.prune_spent_outpoints(&spends);
+        self.mempool.prune_registered_names(&newly_registered_names);
 
         self.already_mined_atomic = self
             .already_mined_atomic
@@ -625,7 +713,6 @@ impl NodeState {
             .saturating_add(1 + included_user_txs as u64);
         self.last_block_timestamp = block.timestamp;
 
-        // Deterministic ASERT anchor locked to Block #1 timestamp so all synced nodes compute identical targets
         if block.height == 1 {
             self.anchor_height = 1;
             self.anchor_timestamp = block.timestamp;

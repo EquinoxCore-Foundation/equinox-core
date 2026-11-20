@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 use crate::genesis::{from_hex, to_hex};
 use crate::runtime::{NodeState, PeerBroadcaster, SharedNode};
+use crate::script::format_eqx_handle;
 use crate::tx::SignedTransaction;
 
 const MAX_HTTP_BYTES: usize = 262_144;
@@ -66,6 +67,8 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode, broadcaster: &Arc<PeerBroadcaste
                         "state_root": to_hex(&st.storage.compute_state_root()),
                         "peers": st.slots.total_connected(),
                         "pending_txns": st.mempool.len(),
+                        "registered_names": st.name_registry.len(),
+                        "anchored_proofs": st.document_proofs.len(),
                         "miner_address": st.miner_address,
                         "dao_address": st.dao_address,
                         "balance": bal as u64,
@@ -86,6 +89,8 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode, broadcaster: &Arc<PeerBroadcaste
                     "pending_txns": st.mempool.len(),
                     "utxo_count": st.storage.utxo_count(),
                     "total_addresses": st.balances.len(),
+                    "registered_names": st.name_registry.len(),
+                    "anchored_proofs": st.document_proofs.len(),
                     "circulating_supply_atomic": st.circulating_supply_atomic().to_string(),
                     "max_supply_atomic": MAX_SUPPLY_ATOMIC.to_string(),
                     "connected_peers": st.slots.total_connected()
@@ -100,25 +105,103 @@ fn dispatch_rpc(body: &[u8], node: &SharedNode, broadcaster: &Arc<PeerBroadcaste
                 },
                 "id": id
             }),
+            "eqx_resolveName" => {
+                let query = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+                match st.resolve_name(query) {
+                    Ok(Some(rec)) => {
+                        let bal = st.balances.get(&rec.owner_address).copied().unwrap_or(0);
+                        json!({
+                            "jsonrpc": "2.0",
+                            "result": {
+                                "found": true,
+                                "handle": format_eqx_handle(&rec.name),
+                                "owner_address": rec.owner_address,
+                                "registered_height": rec.registered_height,
+                                "expires_height": rec.expires_height,
+                                "txid": rec.txid_hex,
+                                "balance_atomic": bal.to_string(),
+                                "balance_eqx": NodeState::format_eqx(bal)
+                            },
+                            "id": id
+                        })
+                    }
+                    Ok(None) => json!({
+                        "jsonrpc": "2.0",
+                        "result": { "found": false, "query": query },
+                        "id": id
+                    }),
+                    Err(msg) => json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": msg },
+                        "id": id
+                    }),
+                }
+            }
+            "eqx_verifyProof" => {
+                let hash_hex = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+                match from_hex(hash_hex) {
+                    Ok(bytes) if bytes.len() == 32 => {
+                        let doc_hash: [u8; 32] = bytes.try_into().unwrap();
+                        if let Some(rec) = st.document_proofs.get(&doc_hash) {
+                            json!({
+                                "jsonrpc": "2.0",
+                                "result": {
+                                    "verified": true,
+                                    "doc_hash": rec.doc_hash_hex,
+                                    "metadata": rec.metadata_utf8,
+                                    "block_height": rec.block_height,
+                                    "timestamp": rec.timestamp,
+                                    "txid": rec.txid_hex
+                                },
+                                "id": id
+                            })
+                        } else {
+                            json!({
+                                "jsonrpc": "2.0",
+                                "result": { "verified": false, "doc_hash": hash_hex },
+                                "id": id
+                            })
+                        }
+                    }
+                    _ => json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32602, "message": "Expected 64-char hex SHA-256/pHash" },
+                        "id": id
+                    }),
+                }
+            }
             "eqx_getBalance" => {
-                let addr = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
-                if !addr.starts_with('E') || addr.len() != 34 {
-                    json!({
-                        "jsonrpc": "2.0",
-                        "error": { "code": -32602, "message": "Invalid 34-char EQX address" },
-                        "id": id
-                    })
+                let input = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+                let resolved_addr = if input.starts_with('@') || input.ends_with(".eqx") {
+                    match st.resolve_name(input) {
+                        Ok(Some(rec)) => Ok(rec.owner_address.clone()),
+                        Ok(None) => Err("Unregistered @name.eqx handle".to_string()),
+                        Err(e) => Err(e),
+                    }
+                } else if input.starts_with('E') && input.len() == 34 {
+                    Ok(input.to_string())
                 } else {
-                    let bal = st.balances.get(addr).copied().unwrap_or(0);
-                    json!({
+                    Err("Invalid 34-char EQX address or @name.eqx handle".to_string())
+                };
+
+                match resolved_addr {
+                    Ok(addr) => {
+                        let bal = st.balances.get(&addr).copied().unwrap_or(0);
+                        json!({
+                            "jsonrpc": "2.0",
+                            "result": {
+                                "address": addr,
+                                "balance_atomic": bal.to_string(),
+                                "balance_eqx": NodeState::format_eqx(bal)
+                            },
+                            "id": id
+                        })
+                    }
+                    Err(msg) => json!({
                         "jsonrpc": "2.0",
-                        "result": {
-                            "address": addr,
-                            "balance_atomic": bal.to_string(),
-                            "balance_eqx": NodeState::format_eqx(bal)
-                        },
+                        "error": { "code": -32602, "message": msg },
                         "id": id
-                    })
+                    }),
                 }
             }
             "eqx_getUtxos" => {

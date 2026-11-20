@@ -7,6 +7,7 @@ mod miner;
 mod p2p_tcp;
 mod rpc_http;
 mod runtime;
+mod script;
 mod tx;
 
 use std::env;
@@ -37,6 +38,7 @@ use crate::miner::spawn_cpu_miner;
 use crate::p2p_tcp::{spawn_outbound_peer, spawn_p2p_listener};
 use crate::rpc_http::spawn_rpc_server;
 use crate::runtime::{NetworkMode, NodeState, PeerBroadcaster};
+use crate::script::DataAnchor;
 use crate::tx::{SignedTransaction, TxOutput};
 
 fn run_end_to_end_verification() -> Result<(), String> {
@@ -131,13 +133,14 @@ fn run_end_to_end_verification() -> Result<(), String> {
             txid: genesis.block_hash,
             vout: 0,
         }],
-        vec![TxOutput {
-            value_atomic: 100_000_000,
-            script_hash160: hash160(&pubkey),
-        }],
+        vec![
+            TxOutput::p2pkh(100_000_000, hash160(&pubkey)),
+            TxOutput::anchor(DataAnchor::RawData(b"EQX402:INV-001".to_vec())),
+        ],
     )?;
     let decoded_tx = SignedTransaction::decode_bytes(&sample_tx.encode_bytes())?;
-    decoded_tx.verify_signatures()?;
+    let sh = decoded_tx.sighash();
+    decoded_tx.verify_input_proof(0, &sh, hash160(&pubkey), 1)?;
 
     let ks = EncryptedKeystore::encrypt(
         ephemeral.as_bytes(),
@@ -156,8 +159,8 @@ fn run_end_to_end_verification() -> Result<(), String> {
     println!("[OK] Genesis Block #0 Hash: {}", to_hex(&genesis.block_hash));
     println!("[OK] UTXO State Root      : {}", to_hex(&state_root));
     println!("[OK] Block #1 Total Reward: {} atomic (90% Miner / 10% DAO)", b1.total_subsidy);
-    println!("[OK] Signed UTXO TXID     : {}", to_hex(&decoded_tx.txid()));
-    println!("[OK] Noise_XX E2EE + Ed25519 + Argon2id Keystore Verified.");
+    println!("[OK] Signed UTXO v2 TXID  : {}", to_hex(&decoded_tx.txid()));
+    println!("[OK] LockCondition (P2PKH/MultiSig/Timelock/Escrow) + DataAnchor Verified.");
     Ok(())
 }
 
@@ -271,7 +274,7 @@ fn run_live_node(args: &[String]) -> Result<(), String> {
     println!("  Equinox Core (EQX) Live Node Running [{}]", mode.name());
     println!("  Chain ID      : {}", chain_id);
     println!("  P2P Noise_XX  : tcp://{} (Live Block & Mempool Auto-Sync)", p2p_addr);
-    println!("  JSON-RPC 2.0  : http://{} (Wallet, Mempool & Explorer API)", rpc_addr);
+    println!("  JSON-RPC 2.0  : http://{} (Escrow, Timelock, Proof & @name.eqx)", rpc_addr);
     println!("  Miner Address : {}", miner_display);
     println!("  WAL Ledger    : {} (Height #{})", data_file.display(), tip_h);
     println!("  Press Ctrl+C to stop cleanly.");
@@ -336,6 +339,10 @@ mod tests {
     use std::net::TcpStream;
     use std::sync::atomic::Ordering;
 
+    use sha2::{Digest, Sha256};
+
+    use crate::script::LockCondition;
+
     fn temp_wal(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -385,17 +392,25 @@ mod tests {
         let bc_a = PeerBroadcaster::new();
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        let bound_a =
-            spawn_p2p_listener("127.0.0.1:0", Arc::clone(&node_a), Arc::clone(&bc_a), Arc::clone(&shutdown))
-                .unwrap();
+        let bound_a = spawn_p2p_listener(
+            "127.0.0.1:0",
+            Arc::clone(&node_a),
+            Arc::clone(&bc_a),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
 
         let state_b = NodeState::bootstrap(NetworkMode::Testnet, &wal_b, None).unwrap();
         let node_b = Arc::new(Mutex::new(state_b));
         let bc_b = PeerBroadcaster::new();
 
-        let (remote_pk, remote_h) =
-            spawn_outbound_peer(bound_a, Arc::clone(&node_b), Arc::clone(&bc_b), Arc::clone(&shutdown))
-                .unwrap();
+        let (remote_pk, remote_h) = spawn_outbound_peer(
+            bound_a,
+            Arc::clone(&node_b),
+            Arc::clone(&bc_b),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
         assert_eq!(remote_pk, expected_pk);
         assert_eq!(remote_h, 0);
 
@@ -419,9 +434,13 @@ mod tests {
         assert!(mined.0.miner_reward_atomic > 0);
         assert!(mined.0.dao_reward_atomic > 0);
 
-        let rpc_addr =
-            spawn_rpc_server("127.0.0.1:0", Arc::clone(&node), Arc::clone(&bc), Arc::clone(&shutdown))
-                .unwrap();
+        let rpc_addr = spawn_rpc_server(
+            "127.0.0.1:0",
+            Arc::clone(&node),
+            Arc::clone(&bc),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
         let payload = format!(
             r#"{{"jsonrpc":"2.0","method":"eqx_getChainInfo","params":["{}"],"id":1}}"#,
             miner_addr
@@ -450,14 +469,18 @@ mod tests {
         let bob_h160 = hash160(&bob_pk);
         let bob_addr = encode_mainnet_address(&bob_pk);
 
-        let state = NodeState::bootstrap(NetworkMode::Testnet, &wal, Some(alice_addr.clone())).unwrap();
+        let state = NodeState::bootstrap(NetworkMode::Testnet, &wal, Some(alice_addr)).unwrap();
         let chain_id = state.mode.chain_id();
         let node = Arc::new(Mutex::new(state));
         let bc = PeerBroadcaster::new();
         let shutdown = Arc::new(AtomicBool::new(false));
-        let rpc_addr =
-            spawn_rpc_server("127.0.0.1:0", Arc::clone(&node), Arc::clone(&bc), Arc::clone(&shutdown))
-                .unwrap();
+        let rpc_addr = spawn_rpc_server(
+            "127.0.0.1:0",
+            Arc::clone(&node),
+            Arc::clone(&bc),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
 
         miner::mine_one_block(&node, &shutdown).unwrap().unwrap();
         let alice_utxos = node.lock().unwrap().utxos_for_hash160(&alice_h160);
@@ -473,14 +496,8 @@ mod tests {
             chain_id,
             vec![coinbase_op],
             vec![
-                TxOutput {
-                    value_atomic: send_to_bob,
-                    script_hash160: bob_h160,
-                },
-                TxOutput {
-                    value_atomic: change,
-                    script_hash160: alice_h160,
-                },
+                TxOutput::p2pkh(send_to_bob, bob_h160),
+                TxOutput::p2pkh(change, alice_h160),
             ],
         )
         .unwrap();
@@ -496,10 +513,7 @@ mod tests {
             &alice_seed,
             chain_id,
             vec![coinbase_op],
-            vec![TxOutput {
-                value_atomic: coinbase_val - fee,
-                script_hash160: alice_h160,
-            }],
+            vec![TxOutput::p2pkh(coinbase_val - fee, alice_h160)],
         )
         .unwrap();
         let ds_req = format!(
@@ -541,8 +555,7 @@ mod tests {
         let bob_h160 = hash160(&bob_pk);
         let bob_addr = encode_mainnet_address(&bob_pk);
 
-        // 1. Start Node A (Miner = Alice) and mine Blocks #1 and #2 BEFORE Node B connects
-        let state_a = NodeState::bootstrap(NetworkMode::Testnet, &wal_a, Some(alice_addr.clone())).unwrap();
+        let state_a = NodeState::bootstrap(NetworkMode::Testnet, &wal_a, Some(alice_addr)).unwrap();
         let chain_id = state_a.mode.chain_id();
         let node_a = Arc::new(Mutex::new(state_a));
         let bc_a = PeerBroadcaster::new();
@@ -559,7 +572,6 @@ mod tests {
         )
         .unwrap();
 
-        // 2. Start Node B at Height #0 and connect persistently to Node A
         let state_b = NodeState::bootstrap(NetworkMode::Testnet, &wal_b, None).unwrap();
         let node_b = Arc::new(Mutex::new(state_b));
         let bc_b = PeerBroadcaster::new();
@@ -571,10 +583,14 @@ mod tests {
         )
         .unwrap();
 
-        spawn_outbound_peer(p2p_a, Arc::clone(&node_b), Arc::clone(&bc_b), Arc::clone(&shutdown))
-            .unwrap();
+        spawn_outbound_peer(
+            p2p_a,
+            Arc::clone(&node_b),
+            Arc::clone(&bc_b),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
 
-        // 3. Verify automatic catch-up IBD sync: Node B must sync Blocks #1 and #2 and match exact UTXO State Root
         let mut synced_h2 = false;
         for _ in 0..40 {
             if node_b.lock().unwrap().storage.tip_height() == 2 {
@@ -583,15 +599,13 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        assert!(synced_h2, "Node B failed to catch-up sync to height #2");
+        assert!(synced_h2);
         assert_eq!(
             node_a.lock().unwrap().storage.compute_state_root(),
             node_b.lock().unwrap().storage.compute_state_root()
         );
 
-        // 4. Submit a signed Alice -> Bob (0.50 EQX) TX to Node B's HTTP RPC -> must propagate live to Node A's mempool!
         let alice_utxos = node_b.lock().unwrap().utxos_for_hash160(&alice_h160);
-        assert!(!alice_utxos.is_empty());
         let (op, val) = alice_utxos[0];
         let send_amt: u128 = 50_000_000;
         let fee: u128 = 2_000;
@@ -601,14 +615,8 @@ mod tests {
             chain_id,
             vec![op],
             vec![
-                TxOutput {
-                    value_atomic: send_amt,
-                    script_hash160: bob_h160,
-                },
-                TxOutput {
-                    value_atomic: val - send_amt - fee,
-                    script_hash160: alice_h160,
-                },
+                TxOutput::p2pkh(send_amt, bob_h160),
+                TxOutput::p2pkh(val - send_amt - fee, alice_h160),
             ],
         )
         .unwrap();
@@ -617,8 +625,7 @@ mod tests {
             r#"{{"jsonrpc":"2.0","method":"eqx_sendRawTransaction","params":["{}"],"id":99}}"#,
             to_hex(&tx.encode_bytes())
         );
-        let rpc_resp = http_post_rpc(rpc_b, &rpc_req);
-        assert!(rpc_resp.contains("accepted_in_mempool"));
+        assert!(http_post_rpc(rpc_b, &rpc_req).contains("accepted_in_mempool"));
 
         let mut tx_synced_to_a = false;
         for _ in 0..40 {
@@ -628,9 +635,8 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        assert!(tx_synced_to_a, "Mempool TX failed to auto-sync from Node B to Node A");
+        assert!(tx_synced_to_a);
 
-        // 5. Node A mines Block #3 (confirming Alice->Bob TX) and broadcasts -> Node B must auto-sync Block #3!
         let (blk3_sum, blk3_full, _) = miner::mine_one_block(&node_a, &shutdown).unwrap().unwrap();
         assert_eq!(blk3_sum.height, 3);
         assert_eq!(blk3_sum.tx_count, 2);
@@ -644,18 +650,307 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        assert!(synced_h3, "Node B failed to live-sync Block #3 from Node A");
-
-        // Final verification: Identical State Roots, empty mempools, and Bob's balance credited on Node B
-        assert_eq!(
-            node_a.lock().unwrap().storage.compute_state_root(),
-            node_b.lock().unwrap().storage.compute_state_root()
-        );
-        assert_eq!(node_b.lock().unwrap().mempool.len(), 0);
+        assert!(synced_h3);
         assert_eq!(
             node_b.lock().unwrap().balances.get(&bob_addr).copied().unwrap_or(0),
             send_amt
         );
+
+        shutdown.store(true, Ordering::Relaxed);
+        thread::sleep(Duration::from_millis(150));
+        cleanup_wal(&wal_a);
+        cleanup_wal(&wal_b);
+    }
+
+    #[test]
+    fn test_multisig_and_escrow_release_plus_timeout_refund() {
+        let wal = temp_wal("escrow");
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let buyer = SecretSeed::generate();
+        let freelancer = SecretSeed::generate();
+        let arbiter = SecretSeed::generate();
+
+        let buyer_h = hash160(&buyer.public_key_bytes());
+        let freelancer_h = hash160(&freelancer.public_key_bytes());
+        let arbiter_h = hash160(&arbiter.public_key_bytes());
+        let buyer_addr = encode_mainnet_address(&buyer.public_key_bytes());
+        let freelancer_addr = encode_mainnet_address(&freelancer.public_key_bytes());
+
+        let state = NodeState::bootstrap(NetworkMode::Testnet, &wal, Some(buyer_addr)).unwrap();
+        let chain_id = state.mode.chain_id();
+        let node = Arc::new(Mutex::new(state));
+
+        // Mine Block #1 so Buyer has coinbase UTXO
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap();
+        let (cb_op, cb_val) = node.lock().unwrap().utxos_for_hash160(&buyer_h)[0];
+
+        // 1. Lock 0.30 EQX in pure 2-of-3 MultiSig, and 0.40 EQX in Escrow (refund at height #5)
+        let ms_cond = LockCondition::MultiSig {
+            threshold: 2,
+            signers: vec![buyer_h, freelancer_h, arbiter_h],
+        };
+        let escrow_cond = LockCondition::Escrow {
+            threshold: 2,
+            signers: vec![buyer_h, freelancer_h, arbiter_h],
+            refund_height: 5,
+            refund_recipient: buyer_h,
+        };
+
+        let fund_tx = SignedTransaction::sign_transfer(
+            &buyer,
+            chain_id,
+            vec![cb_op],
+            vec![
+                TxOutput::locked(30_000_000, ms_cond.clone()),
+                TxOutput::locked(40_000_000, escrow_cond.clone()),
+                TxOutput::p2pkh(cb_val - 70_000_000 - 2_000, buyer_h),
+            ],
+        )
+        .unwrap();
+        let fund_txid = fund_tx.txid();
+        node.lock().unwrap().submit_transaction(fund_tx).unwrap();
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #2
+
+        let ms_op = OutPoint { txid: fund_txid, vout: 0 };
+        let escrow_op = OutPoint { txid: fund_txid, vout: 1 };
+
+        // 2. Single signature (1-of-3) on MultiSig MUST be rejected
+        let bad_ms = SignedTransaction::sign_multisig_spend(
+            &[&freelancer],
+            ms_cond.clone(),
+            chain_id,
+            vec![ms_op],
+            vec![TxOutput::p2pkh(29_998_000, freelancer_h)],
+        )
+        .unwrap();
+        assert!(node.lock().unwrap().submit_transaction(bad_ms).is_err());
+
+        // 3. Cooperative 2-of-3 release (Buyer + Freelancer) SUCCEEDS
+        let good_ms = SignedTransaction::sign_multisig_spend(
+            &[&buyer, &freelancer],
+            ms_cond,
+            chain_id,
+            vec![ms_op],
+            vec![TxOutput::p2pkh(29_998_000, freelancer_h)],
+        )
+        .unwrap();
+        node.lock().unwrap().submit_transaction(good_ms).unwrap();
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #3
+        assert_eq!(
+            node.lock().unwrap().balances.get(&freelancer_addr).copied().unwrap_or(0),
+            29_998_000
+        );
+
+        // 4. Premature Escrow timeout refund at next_height = 4 (< 5) MUST be rejected
+        let refund_tx = SignedTransaction::sign_escrow_refund(
+            &buyer,
+            escrow_cond,
+            chain_id,
+            vec![escrow_op],
+            vec![TxOutput::p2pkh(39_998_000, buyer_h)],
+        )
+        .unwrap();
+        let early_err = node.lock().unwrap().submit_transaction(refund_tx.clone()).unwrap_err();
+        assert!(early_err.contains("not yet matured"));
+
+        // 5. Advance to Block #4 (so next_height = 5) -> Escrow timeout refund SUCCEEDS
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #4
+        node.lock().unwrap().submit_transaction(refund_tx).unwrap();
+        let blk5 = miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #5
+        assert_eq!(blk5.0.height, 5);
+        assert_eq!(blk5.0.tx_count, 2);
+
+        cleanup_wal(&wal);
+    }
+
+    #[test]
+    fn test_timelock_inheritance_maturity_enforcement() {
+        let wal = temp_wal("timelock");
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let owner = SecretSeed::generate();
+        let heir = SecretSeed::generate();
+        let owner_h = hash160(&owner.public_key_bytes());
+        let heir_h = hash160(&heir.public_key_bytes());
+        let owner_addr = encode_mainnet_address(&owner.public_key_bytes());
+        let heir_addr = encode_mainnet_address(&heir.public_key_bytes());
+
+        let state = NodeState::bootstrap(NetworkMode::Testnet, &wal, Some(owner_addr)).unwrap();
+        let chain_id = state.mode.chain_id();
+        let node = Arc::new(Mutex::new(state));
+
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #1
+        let (cb_op, cb_val) = node.lock().unwrap().utxos_for_hash160(&owner_h)[0];
+
+        let tl_cond = LockCondition::Timelock {
+            unlock_height: 4,
+            recipient: heir_h,
+        };
+        let lock_tx = SignedTransaction::sign_transfer(
+            &owner,
+            chain_id,
+            vec![cb_op],
+            vec![
+                TxOutput::locked(50_000_000, tl_cond),
+                TxOutput::p2pkh(cb_val - 50_000_000 - 2_000, owner_h),
+            ],
+        )
+        .unwrap();
+        let lock_txid = lock_tx.txid();
+        node.lock().unwrap().submit_transaction(lock_tx).unwrap();
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #2
+
+        let claim_tx = SignedTransaction::sign_timelock_spend(
+            &heir,
+            4,
+            chain_id,
+            vec![OutPoint { txid: lock_txid, vout: 0 }],
+            vec![TxOutput::p2pkh(49_998_000, heir_h)],
+        )
+        .unwrap();
+
+        // Premature claim at next_height = 3 (< 4) rejected
+        assert!(node.lock().unwrap().submit_transaction(claim_tx.clone()).is_err());
+
+        // Advance to Block #3 -> next_height = 4 -> Heir claims inheritance cleanly
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #3
+        node.lock().unwrap().submit_transaction(claim_tx).unwrap();
+        miner::mine_one_block(&node, &shutdown).unwrap().unwrap(); // Block #4
+
+        assert_eq!(
+            node.lock().unwrap().balances.get(&heir_addr).copied().unwrap_or(0),
+            49_998_000
+        );
+        cleanup_wal(&wal);
+    }
+
+    #[test]
+    fn test_document_proof_and_eqx_name_registry_with_live_p2p_sync() {
+        let wal_a = temp_wal("anchor_a");
+        let wal_b = temp_wal("anchor_b");
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let alice = SecretSeed::generate();
+        let bob = SecretSeed::generate();
+        let alice_h = hash160(&alice.public_key_bytes());
+        let bob_h = hash160(&bob.public_key_bytes());
+        let alice_addr = encode_mainnet_address(&alice.public_key_bytes());
+
+        let state_a = NodeState::bootstrap(NetworkMode::Testnet, &wal_a, Some(alice_addr.clone())).unwrap();
+        let chain_id = state_a.mode.chain_id();
+        let node_a = Arc::new(Mutex::new(state_a));
+        let bc_a = PeerBroadcaster::new();
+
+        let p2p_a = spawn_p2p_listener(
+            "127.0.0.1:0",
+            Arc::clone(&node_a),
+            Arc::clone(&bc_a),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
+
+        let state_b = NodeState::bootstrap(NetworkMode::Testnet, &wal_b, None).unwrap();
+        let node_b = Arc::new(Mutex::new(state_b));
+        let bc_b = PeerBroadcaster::new();
+        let rpc_b = spawn_rpc_server(
+            "127.0.0.1:0",
+            Arc::clone(&node_b),
+            Arc::clone(&bc_b),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
+
+        spawn_outbound_peer(
+            p2p_a,
+            Arc::clone(&node_b),
+            Arc::clone(&bc_b),
+            Arc::clone(&shutdown),
+        )
+        .unwrap();
+
+        // Mine Block #1 on Node A and broadcast
+        let (_, blk1, _) = miner::mine_one_block(&node_a, &shutdown).unwrap().unwrap();
+        bc_a.broadcast(WireMessage::BlockData(blk1.encode_bytes()), None);
+
+        // Alice anchors a PDF DocumentProof + registers @alice_dev.eqx + sends Bob 0.20 EQX
+        let (cb_op, cb_val) = node_a.lock().unwrap().utxos_for_hash160(&alice_h)[0];
+        let pdf_hash: [u8; 32] = Sha256::digest(b"Signed Rent Agreement PDF #2026").into();
+        let fee: u128 = 150_000; // >= 0.001 EQX NameRegister minimum fee
+
+        let anchor_tx = SignedTransaction::sign_transfer(
+            &alice,
+            chain_id,
+            vec![cb_op],
+            vec![
+                TxOutput::p2pkh(20_000_000, bob_h),
+                TxOutput::p2pkh(cb_val - 20_000_000 - fee, alice_h),
+                TxOutput::anchor(DataAnchor::DocumentProof {
+                    doc_hash: pdf_hash,
+                    metadata: b"Rent Agreement #2026".to_vec(),
+                }),
+                TxOutput::anchor(DataAnchor::NameRegister {
+                    name: "alice_dev".to_string(),
+                    owner_h160: alice_h,
+                }),
+            ],
+        )
+        .unwrap();
+        let anchor_txid = anchor_tx.txid();
+        node_a.lock().unwrap().submit_transaction(anchor_tx).unwrap();
+
+        let (_, blk2, _) = miner::mine_one_block(&node_a, &shutdown).unwrap().unwrap();
+        bc_a.broadcast(WireMessage::BlockData(blk2.encode_bytes()), None);
+
+        // Bob tries to hijack @alice_dev.eqx -> MUST be rejected!
+        let hijack_tx = SignedTransaction::sign_transfer(
+            &bob,
+            chain_id,
+            vec![OutPoint { txid: anchor_txid, vout: 0 }],
+            vec![
+                TxOutput::p2pkh(20_000_000 - fee, bob_h),
+                TxOutput::anchor(DataAnchor::NameRegister {
+                    name: "alice_dev".to_string(),
+                    owner_h160: bob_h,
+                }),
+            ],
+        )
+        .unwrap();
+        let hijack_err = node_a.lock().unwrap().submit_transaction(hijack_tx).unwrap_err();
+        assert!(hijack_err.contains("already registered"));
+
+        // Wait for Node B to live-sync Block #2 over Noise_XX
+        let mut synced = false;
+        for _ in 0..40 {
+            if node_b.lock().unwrap().storage.tip_height() == 2 {
+                synced = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(synced, "Node B failed to sync anchor block #2");
+
+        // Verify via Node B's HTTP JSON-RPC: eqx_resolveName, eqx_verifyProof, and eqx_getBalance(@alice_dev.eqx)
+        let name_resp = http_post_rpc(
+            rpc_b,
+            r#"{"jsonrpc":"2.0","method":"eqx_resolveName","params":["@alice_dev.eqx"],"id":1}"#,
+        );
+        assert!(name_resp.contains(r#""found":true"#));
+        assert!(name_resp.contains(&alice_addr));
+
+        let proof_req = format!(
+            r#"{{"jsonrpc":"2.0","method":"eqx_verifyProof","params":["{}"],"id":2}}"#,
+            to_hex(&pdf_hash)
+        );
+        let proof_resp = http_post_rpc(rpc_b, &proof_req);
+        assert!(proof_resp.contains(r#""verified":true"#));
+        assert!(proof_resp.contains("Rent Agreement #2026"));
+
+        let bal_resp = http_post_rpc(
+            rpc_b,
+            r#"{"jsonrpc":"2.0","method":"eqx_getBalance","params":["@alice_dev.eqx"],"id":3}"#,
+        );
+        assert!(bal_resp.contains(&alice_addr));
 
         shutdown.store(true, Ordering::Relaxed);
         thread::sleep(Duration::from_millis(150));

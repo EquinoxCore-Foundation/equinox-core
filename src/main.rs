@@ -1,9 +1,10 @@
-﻿#![allow(dead_code)]
+#![allow(dead_code)]
 // src/main.rs
 // Equinox (EQX) L1 — Audit-Grade Mainnet & Testnet Full Node, Fresh Wallet Generator ('new-wallet'),
 // Live P2P TCP Server (Port 9333), Background Sync & Tx Relay Worker, 1.70% Royalty Split & JSON-RPC 2.0.
 
 pub mod config;
+pub mod token_registry;
 pub mod consensus;
 pub mod crypto;
 pub mod dex;

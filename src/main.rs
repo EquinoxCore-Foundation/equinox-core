@@ -6,6 +6,7 @@
 pub mod config;
 pub mod token_registry;
 pub mod token_rpc;
+pub mod evm_engine;
 pub mod consensus;
 pub mod crypto;
 pub mod dex;

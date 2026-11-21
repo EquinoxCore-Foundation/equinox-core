@@ -483,6 +483,9 @@ impl RpcServer {
     if let Some(token_res) = crate::token_rpc::handle_token_rpc(normalized_method, &token_params) {
         return JsonRpcResponse::success(req_id, token_res);
     }
+    if let Some(evm_res) = crate::evm_rpc::handle_evm_rpc(normalized_method, &token_params) {
+        return JsonRpcResponse::success(req_id, evm_res);
+    }
 
     match normalized_method {
             "eth_chainId" => {

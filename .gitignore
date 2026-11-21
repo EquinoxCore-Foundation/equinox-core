@@ -33,3 +33,6 @@ crates/*/target/
 *.tmp
 *.wal
 *.blocks
+# Flutter & Dart generated files
+Equinox-Super-Wallet/apps/mobile_flutter/.dart_tool/
+Equinox-Super-Wallet/apps/mobile_flutter/build/

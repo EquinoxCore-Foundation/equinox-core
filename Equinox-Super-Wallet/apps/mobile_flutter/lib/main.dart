@@ -5,7 +5,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'eqx_v2_rpc_sheet.dart';
+import 'eqx_auth_screen.dart';
+import 'eqx_live_market.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +36,7 @@ class EquinoxSuperWalletApp extends StatelessWidget {
           surface: Color(0xFF111622),
         ),
       ),
-      home: const EquinoxExchangeShell(),
+      home: const _EqxRootGate(),
     );
   }
 }
@@ -74,12 +77,12 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
   bool _isScanningMesh = false;
   int _connectedPeerCount = 6;
   final List<PeerNodeInfo> _discoveredPeers = [
-    PeerNodeInfo("EQX-PC-9333-A1", "LAN • Auto-Discovered:18545", "PC Full Node (ASERT Miner)", 12, 1482),
-    PeerNodeInfo("EQX-MOB-PEX-04", "P2P • Gossip Mesh:19333", "Mobile Light Peer (SPV)", 28, 1482),
-    PeerNodeInfo("EQX-PC-VALID-09", "P2P • BFT Finality:19333", "PC Full Node (Validator)", 39, 1482),
-    PeerNodeInfo("EQX-MOB-PEX-11", "P2P • Direct Wi-Fi Direct", "Mobile Light Peer (POS)", 19, 1482),
-    PeerNodeInfo("seed1.equinoxcore", "DNS • Global Seed Relay", "Global Seed Node", 64, 1482),
-    PeerNodeInfo("seed2.equinoxcore", "DNS • Global Seed Relay", "Global Seed Node", 78, 1482),
+    PeerNodeInfo("EQX-PC-9333-A1", "LAN â€¢ Auto-Discovered:18545", "PC Full Node (ASERT Miner)", 12, 1482),
+    PeerNodeInfo("EQX-MOB-PEX-04", "P2P â€¢ Gossip Mesh:19333", "Mobile Light Peer (SPV)", 28, 1482),
+    PeerNodeInfo("EQX-PC-VALID-09", "P2P â€¢ BFT Finality:19333", "PC Full Node (Validator)", 39, 1482),
+    PeerNodeInfo("EQX-MOB-PEX-11", "P2P â€¢ Direct Wi-Fi Direct", "Mobile Light Peer (POS)", 19, 1482),
+    PeerNodeInfo("seed1.equinoxcore", "DNS â€¢ Global Seed Relay", "Global Seed Node", 64, 1482),
+    PeerNodeInfo("seed2.equinoxcore", "DNS â€¢ Global Seed Relay", "Global Seed Node", 78, 1482),
   ];
 
   // AMM DEX State
@@ -261,7 +264,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                       const SizedBox(width: 5),
                       Flexible(
                         child: Text(
-                          "Auto-Mesh ($_connectedPeerCount Peers) • #$_blockHeight",
+                          "Auto-Mesh ($_connectedPeerCount Peers) â€¢ #$_blockHeight",
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 10.5, color: Color(0xFF0ECB81), fontWeight: FontWeight.w600),
                         ),
@@ -330,7 +333,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
           BottomNavigationBarItem(icon: Icon(Icons.pie_chart_rounded), label: "Wallet"),
           BottomNavigationBarItem(icon: Icon(Icons.candlestick_chart_rounded), label: "DEX & LP"),
           BottomNavigationBarItem(icon: Icon(Icons.qr_code_2_rounded), label: "Merchant POS"),
-          BottomNavigationBarItem(icon: Icon(Icons.wifi_tethering_rounded), label: "Auto-Mesh"),
+          BottomNavigationBarItem(icon: Icon(Icons.show_chart_rounded), label: "Markets"),
         ],
       ),
     );
@@ -375,7 +378,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                   InkWell(
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: _address));
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(backgroundColor: Color(0xFF0ECB81), content: Text("EQX Address Copied to Clipboard!")),
                       );
                     },
@@ -429,7 +432,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            "≈ ${_eqxBalance.toStringAsFixed(2)} EQX",
+                            "â‰ˆ ${_eqxBalance.toStringAsFixed(2)} EQX",
                             style: const TextStyle(color: Color(0xFFF3BA2F), fontSize: 12, fontWeight: FontWeight.w700),
                           ),
                         ],
@@ -460,7 +463,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                       _eqxBalance += 50.0;
                       _sparkline.add(_eqxPrice + 0.008);
                     });
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         backgroundColor: const Color(0xFF0ECB81),
                         content: Text("Mined PoW Block #$_blockHeight (+50.00 EQX) Broadcasted to $_connectedPeerCount Peers!"),
@@ -541,9 +544,9 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
         ] else if (_marketSubTab == 1) ...[
           _buildDividendYieldCard(),
         ] else ...[
-          _buildTxHistoryCard("PoW Block #$_blockHeight Mined", "+50.00 EQX", "15s ASERT Finality • Chain 9333", true),
+          _buildTxHistoryCard("PoW Block #$_blockHeight Mined", "+50.00 EQX", "15s ASERT Finality â€¢ Chain 9333", true),
           _buildTxHistoryCard("On-Chain AMM LP Dividend", "+4.82 EQX", "Epoch #19 Auto-Distribution", true),
-          _buildTxHistoryCard("Merchant POS Instant Pay", "+25.00 EQX", "Invoice #108 • Zero-Fee", true),
+          _buildTxHistoryCard("Merchant POS Instant Pay", "+25.00 EQX", "Invoice #108 â€¢ Zero-Fee", true),
           _buildTxHistoryCard("DEX Liquidity Deposit", "-100.00 EQX", "EQX/USDT Constant-Product Pool", false),
         ],
       ],
@@ -680,7 +683,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                   _eqxBalance += _unclaimedDividends;
                   _unclaimedDividends = 0.0;
                 });
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Dividends Claimed to Main UTXO Balance!")));
+                SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Dividends Claimed to Main UTXO Balance!")));
               },
               child: const Text("Claim All Yield to Wallet", style: TextStyle(fontWeight: FontWeight.w900)),
             ),
@@ -895,7 +898,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                       _eqxPrice = _poolUsdt / _poolEqx;
                       _sparkline.add(_eqxPrice);
                     });
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(backgroundColor: Color(0xFF0ECB81), content: Text("Atomic AMM Swap Settled on Layer-1!")),
                     );
                   },
@@ -963,7 +966,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
               ),
               const SizedBox(height: 12),
               Text(
-                "Requesting ${_posAmtCtrl.text} EQX (≈ \$${((double.tryParse(_posAmtCtrl.text) ?? 0) * _eqxPrice).toStringAsFixed(2)} USD)",
+                "Requesting ${_posAmtCtrl.text} EQX (â‰ˆ \$${((double.tryParse(_posAmtCtrl.text) ?? 0) * _eqxPrice).toStringAsFixed(2)} USD)",
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white),
               ),
               const SizedBox(height: 4),
@@ -1019,7 +1022,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                         _eqxBalance += paid;
                       });
                       SystemSound.play(SystemSoundType.click);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           backgroundColor: const Color(0xFF0ECB81),
                           content: Text("Instant POS Payment Confirmed: +$paid EQX Received!"),
@@ -1121,7 +1124,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("${peer.id} • ${peer.deviceType}", style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                          Text("${peer.id} â€¢ ${peer.deviceType}", style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
                           Text(peer.endpoint, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                         ],
                       ),
@@ -1188,7 +1191,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                     _vaultLabel = "Sovereign Vault #${Random().nextInt(90) + 10}";
                   });
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Created New Fresh Sovereign EQX Vault!")));
+                  SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Created New Fresh Sovereign EQX Vault!")));
                 },
                 icon: const Icon(Icons.add_circle_outline_rounded),
                 label: const Text("Create New Fresh EQX Wallet", style: TextStyle(fontWeight: FontWeight.w900)),
@@ -1246,7 +1249,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                   if (amt > 0 && amt <= _eqxBalance) {
                     setState(() => _eqxBalance -= amt);
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(backgroundColor: const Color(0xFF0ECB81), content: Text("Broadcasted $amt EQX across $_connectedPeerCount P2P Mesh Peers!")),
                     );
                   }
@@ -1287,7 +1290,7 @@ class _EquinoxExchangeShellState extends State<EquinoxExchangeShell> {
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: _address));
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Address Copied!")));
+                  SystemSound.play(SystemSoundType.alert); HapticFeedback.heavyImpact(); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Address Copied!")));
                 },
                 icon: const Icon(Icons.copy_rounded),
                 label: const Text("Copy Address", style: TextStyle(fontWeight: FontWeight.w900)),
@@ -1376,4 +1379,26 @@ class _DeterministicQrPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DeterministicQrPainter oldDelegate) => oldDelegate.payload != payload;
+}
+
+
+class _EqxRootGate extends StatefulWidget {
+  const _EqxRootGate();
+
+  @override
+  State<_EqxRootGate> createState() => _EqxRootGateState();
+}
+
+class _EqxRootGateState extends State<_EqxRootGate> {
+  bool _unlocked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_unlocked) {
+      return EqxAuthScreen(
+        onAuthenticated: (_, __) => setState(() => _unlocked = true),
+      );
+    }
+    return const EquinoxExchangeShell();
+  }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'eqx_multichain_sheet.dart';
 
 class EqxV2RpcClient {
   final String endpointUrl;
@@ -110,7 +111,7 @@ class EqxV2QuickBar extends StatelessWidget {
           _pill(
             context: context,
             icon: Icons.hub_outlined,
-            label: 'Node v2 RPC',
+            label: 'Multi-Chain',
             color: const Color(0xFFF59E0B),
             tab: 2,
           ),
@@ -128,7 +129,7 @@ class EqxV2QuickBar extends StatelessWidget {
   }) {
     return Expanded(
       child: InkWell(
-        onTap: () => _openSheet(context, tab),
+        onTap: () { if (tab == 2) { showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (_) => const EqxMultiChainSheet()); } else { _openSheet(context, tab); } },
         borderRadius: BorderRadius.circular(10),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),

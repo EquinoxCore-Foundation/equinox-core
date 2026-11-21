@@ -1,4 +1,4 @@
-﻿// File: src/rpc/rpc_server.rs
+// File: src/rpc/rpc_server.rs
 #![forbid(unsafe_code)]
 
 use crate::config::{
@@ -479,7 +479,12 @@ impl RpcServer {
             other => other,
         };
 
-        match normalized_method {
+        let token_params = serde_json::to_value(&req.params).unwrap_or(serde_json::Value::Null);
+    if let Some(token_res) = crate::token_rpc::handle_token_rpc(normalized_method, &token_params) {
+        return JsonRpcResponse::success(req_id, token_res);
+    }
+
+    match normalized_method {
             "eth_chainId" => {
                 JsonRpcResponse::success(req_id, json!(format!("0x{:x}", CHAIN_ID)))
             }

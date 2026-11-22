@@ -4,8 +4,11 @@
 // Live P2P TCP Server (Port 9333), Background Sync & Tx Relay Worker, 1.70% Royalty Split & JSON-RPC 2.0.
 
 pub mod config;
+pub mod security_hardening;
 pub mod token_registry;
 pub mod token_rpc;
+pub mod token_auth;
+pub mod evm_precompile;
 pub mod evm_engine;
 pub mod evm_rpc;
 pub mod consensus;

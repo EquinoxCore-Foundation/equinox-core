@@ -4,8 +4,16 @@ use crate::token_registry::NativeTokenRegistry;
 
 static GLOBAL_TOKEN_REGISTRY: OnceLock<Mutex<NativeTokenRegistry>> = OnceLock::new();
 
+/// Default persistence path for the native token registry.
+const TOKEN_STATE_PATH: &str = "data/token_registry.json";
+
 fn registry() -> &'static Mutex<NativeTokenRegistry> {
-    GLOBAL_TOKEN_REGISTRY.get_or_init(|| Mutex::new(NativeTokenRegistry::new()))
+    GLOBAL_TOKEN_REGISTRY.get_or_init(|| {
+        // Try to load existing state from disk; fall back to empty registry.
+        let reg = NativeTokenRegistry::load_from_disk(TOKEN_STATE_PATH)
+            .unwrap_or_default();
+        Mutex::new(reg)
+    })
 }
 
 /// Handles eqx_deployToken, eqx_transferToken, eqx_getTokenBalance, and eqx_listTokens.
@@ -150,4 +158,15 @@ mod tests {
         .expect("should handle balance");
         assert_eq!(bal["balance"], "125000");
     }
+}
+
+/// Shared accessor allowing EVM Precompile Bridge to read/mutate NativeTokenRegistry atomically.
+pub fn with_registry<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce(&mut NativeTokenRegistry) -> R,
+{
+    let mut guard = registry().lock().map_err(|_| "Registry lock poisoned".to_string())?;
+    let out = f(&mut guard);
+    let _ = guard.save_to_disk(TOKEN_STATE_PATH);
+    Ok(out)
 }

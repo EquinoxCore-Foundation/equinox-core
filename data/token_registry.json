@@ -1,0 +1,29 @@
+{
+  "assets": {
+    "eqx_asset_5075d49422bf9187af850d1e40feed07": {
+      "asset_id": "eqx_asset_5075d49422bf9187af850d1e40feed07",
+      "name": "Bridge Token",
+      "ticker": "BRG",
+      "decimals": 6,
+      "total_supply": 1000000,
+      "creator": "eqx1bridge_creator",
+      "mintable": false,
+      "freezable": false
+    }
+  },
+  "ticker_index": {
+    "BRG": "eqx_asset_5075d49422bf9187af850d1e40feed07"
+  },
+  "balances": [
+    [
+      "eqx_asset_5075d49422bf9187af850d1e40feed07",
+      "eqx1bridge_creator",
+      800000
+    ],
+    [
+      "eqx_asset_5075d49422bf9187af850d1e40feed07",
+      "eqx1evm_user",
+      200000
+    ]
+  ]
+}

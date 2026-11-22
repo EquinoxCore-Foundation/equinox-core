@@ -6,7 +6,7 @@ use crate::evm_engine::EquinoxEvmEngine;
 static GLOBAL_EVM: OnceLock<Mutex<EquinoxEvmEngine>> = OnceLock::new();
 
 fn evm_engine() -> &'static Mutex<EquinoxEvmEngine> {
-    GLOBAL_EVM.get_or_init(|| Mutex::new(EquinoxEvmEngine::new(7777)))
+    GLOBAL_EVM.get_or_init(|| Mutex::new(EquinoxEvmEngine::new(9333)))
 }
 
 fn decode_hex(s: &str) -> Result<Vec<u8>, String> {

@@ -265,7 +265,18 @@ impl RpcServer {
         let mut expected_total_len: Option<usize> = None;
 
         loop {
-            match stream.read(&mut temp) {
+            let to_read = match expected_total_len {
+                Some(target_len) => {
+                    let remaining = target_len.saturating_sub(buf.len());
+                    if remaining == 0 {
+                        break;
+                    }
+                    remaining.min(temp.len())
+                }
+                None => temp.len(),
+            };
+
+            match stream.read(&mut temp[..to_read]) {
                 Ok(0) => break,
                 Ok(n) => {
                     buf.extend_from_slice(&temp[..n]);
@@ -275,26 +286,25 @@ impl RpcServer {
                         return Self::write_http_json(&mut stream, 413, &err_resp);
                     }
                     if expected_total_len.is_none() {
-                        let preview = String::from_utf8_lossy(&buf);
-                        if let Some((hdr_part, _)) = preview
-                            .split_once("\r\n\r\n")
-                            .or_else(|| preview.split_once("\n\n"))
-                        {
-                            let sep_len = if preview.contains("\r\n\r\n") { 4 } else { 2 };
-                            let hdr_bytes_len = hdr_part.len() + sep_len;
+                        let pos_opt = buf.windows(4).position(|w| w == b"\r\n\r\n").map(|p| (p, 4))
+                            .or_else(|| buf.windows(2).position(|w| w == b"\n\n").map(|p| (p, 2)));
+                        if let Some((hdr_end, sep_len)) = pos_opt {
+                            let hdr_str = String::from_utf8_lossy(&buf[..hdr_end]);
                             let mut content_len = 0usize;
-                            for line in hdr_part.lines() {
+                            for line in hdr_str.lines() {
                                 if let Some((k, v)) = line.split_once(':') {
                                     if k.trim().eq_ignore_ascii_case("Content-Length") {
                                         content_len = v.trim().parse::<usize>().unwrap_or(0);
+                                        break;
                                     }
                                 }
                             }
-                            expected_total_len = Some(hdr_bytes_len + content_len);
+                            expected_total_len = Some(hdr_end + sep_len + content_len);
                         }
                     }
                     if let Some(target_len) = expected_total_len {
                         if buf.len() >= target_len {
+                            buf.truncate(target_len);
                             break;
                         }
                     }
@@ -314,31 +324,41 @@ impl RpcServer {
         }
         let raw_req = String::from_utf8_lossy(&buf);
 
-        if raw_req.starts_with("OPTIONS ") {
+        let trimmed_req = raw_req.trim_start();
+
+        if trimmed_req.starts_with("OPTIONS ") || trimmed_req.starts_with("OPTIONS\r") || trimmed_req.starts_with("OPTIONS\n") || trimmed_req == "OPTIONS" {
             let cors_headers = "HTTP/1.1 204 No Content\r\n\
-                Access-Control-Allow-Origin: *\r\n\
-                Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n\
-                Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
-                Content-Length: 0\r\n\
-                Connection: close\r\n\r\n";
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n\
+Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+Content-Length: 0\r\n\
+Connection: close\r\n\r\n";
             let _ = stream.write_all(cors_headers.as_bytes());
+            let _ = stream.flush();
             return Ok(());
         }
 
-        if raw_req.starts_with("GET ") {
-            let path = raw_req
+        if trimmed_req.starts_with("GET ") {
+            let path = trimmed_req
                 .lines()
                 .next()
                 .and_then(|l| l.split_whitespace().nth(1))
                 .unwrap_or("/");
             if let Some((body, content_type)) = Self::handle_rest_get_query(path, &shared_state) {
                 let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    "HTTP/1.1 200 OK\r\n\
+Content-Type: {}\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n\
+Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+Content-Length: {}\r\n\
+Connection: close\r\n\r\n{}",
                     content_type,
                     body.len(),
                     body
                 );
                 let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
                 return Ok(());
             }
         }
@@ -384,6 +404,15 @@ impl RpcServer {
         let rep = TokenomicsEngine::get_supply_report_at_height(state.best_height);
 
         match path {
+            "/" | "/health" => Some((
+                json!({
+                    "status": "ok",
+                    "chain_id": CHAIN_ID,
+                    "height": state.best_height
+                })
+                .to_string(),
+                "application/json; charset=utf-8",
+            )),
             "/api/v1/supply" | "/api/v1/circulating_supply" => Some((
                 Self::format_atomic_to_eqx(rep.circulating_supply),
                 "text/plain; charset=utf-8",
@@ -427,11 +456,12 @@ impl RpcServer {
 
         let http_response = format!(
             "HTTP/1.1 {}\r\n\
-             Content-Type: application/json; charset=utf-8\r\n\
-             Access-Control-Allow-Origin: *\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n\
-             {}",
+Content-Type: application/json; charset=utf-8\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n\
+Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+Content-Length: {}\r\n\
+Connection: close\r\n\r\n{}",
             status_text,
             body.len(),
             body

@@ -84,7 +84,7 @@ class EqxMultiChainVault {
 
   static Future<List<ChainBalance>> fetchAllBalances(
     MultiChainAddresses addrs, {
-    String eqxRpcUrl = 'http://127.0.0.1:18545',
+    String eqxRpcUrl = 'http://127.0.0.1:8545',
   }) async {
     final results = await Future.wait([
       _fetchEvmBalance('Ethereum', 'ETH', addrs.evmAddress, 'https://ethereum-rpc.publicnode.com'),
@@ -138,33 +138,42 @@ class EqxMultiChainVault {
     );
   }
 
+  static const List<String> _solanaRpcEndpoints = [
+    'https://solana-rpc.publicnode.com',
+    'https://solana-rpc.publicnode.com',
+  ];
+
   static Future<ChainBalance> _fetchSolanaBalance(String address) async {
-    try {
-      final res = await http
-          .post(
-            Uri.parse('https://api.mainnet-beta.solana.com'),
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'jsonrpc': '2.0',
-              'id': 1,
-              'method': 'getBalance',
-              'params': [address],
-            }),
-          )
-          .timeout(const Duration(seconds: 5));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final lamports = (data['result']?['value'] ?? 0) as num;
-        final sol = lamports / 1e9;
-        return ChainBalance(
-          chainName: 'Solana',
-          symbol: 'SOL',
-          address: address,
-          balance: sol.toStringAsFixed(6),
-          status: 'Live RPC',
-        );
+    for (final rpcUrl in _solanaRpcEndpoints) {
+      try {
+        final res = await http
+            .post(
+              Uri.parse(rpcUrl),
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'jsonrpc': '2.0',
+                'id': 1,
+                'method': 'getBalance',
+                'params': [address],
+              }),
+            )
+            .timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final lamports = (data['result']?['value'] ?? 0) as num;
+          final sol = lamports / 1e9;
+          return ChainBalance(
+            chainName: 'Solana',
+            symbol: 'SOL',
+            address: address,
+            balance: sol.toStringAsFixed(6),
+            status: 'Live RPC',
+          );
+        }
+      } catch (_) {
+        // Try next endpoint
       }
-    } catch (_) {}
+    }
     return ChainBalance(
       chainName: 'Solana',
       symbol: 'SOL',

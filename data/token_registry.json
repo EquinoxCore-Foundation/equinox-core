@@ -17,13 +17,13 @@
   "balances": [
     [
       "eqx_asset_5075d49422bf9187af850d1e40feed07",
-      "eqx1bridge_creator",
-      800000
+      "eqx1evm_user",
+      500000
     ],
     [
       "eqx_asset_5075d49422bf9187af850d1e40feed07",
-      "eqx1evm_user",
-      200000
+      "eqx1bridge_creator",
+      500000
     ]
   ]
 }

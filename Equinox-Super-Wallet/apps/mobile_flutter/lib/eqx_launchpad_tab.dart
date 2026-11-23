@@ -30,7 +30,7 @@ class EqxLaunchpadTab extends StatefulWidget {
 }
 
 class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
-  static const String _nodeRpcUrl = 'http://127.0.0.1:18545';
+  static const String _nodeRpcUrl = 'http://127.0.0.1:8545';
 
   int _tab = 0; // 0: Launches, 1: Create Token
   bool _fixedSupply = true;
@@ -74,12 +74,20 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
               'params': <String, dynamic>{},
             }),
           )
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 8));
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final result = body['result'] as Map<String, dynamic>?;
-        final list = (result?['tokens'] as List<dynamic>?) ?? [];
+        List<dynamic> list = [];
+        final result = body['result'];
+        if (result is List) {
+          list = result;
+        } else if (result is Map<String, dynamic>) {
+          if (result['tokens'] is List) {
+            list = result['tokens'] as List<dynamic>;
+          }
+        }
+
         final parsed = list.map((item) {
           final m = item as Map<String, dynamic>;
           return _LaunchToken(
@@ -99,8 +107,11 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
             _tokens = parsed;
           }
         });
+      } else {
+        if (mounted) setState(() => _nodeOnline = false);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Launchpad RPC error: $e');
       if (mounted) setState(() => _nodeOnline = false);
     }
   }
@@ -141,7 +152,7 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
               },
             }),
           )
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 8));
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -167,7 +178,8 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
           return;
         }
       }
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('[EqxLaunchpad] _deployToken error: $e\n$st');
       // Offline fallback preview if local Rust node is not running yet
       HapticFeedback.mediumImpact();
       if (mounted) {
@@ -189,7 +201,7 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
           _nameCtrl.clear();
           _tickerCtrl.clear();
         });
-        _toast('Node offline on :18545 — saved in preview. Start Equinox node to deploy live.');
+        _toast('Node offline on :8545 — saved in preview. Start Equinox node to deploy live.');
       }
       return;
     }
@@ -225,14 +237,27 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Equinox Launchpad', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-                      SizedBox(height: 2),
-                      Text('Native UTXO Assets • Consensus Enforced', style: TextStyle(color: Color(0xFF8A919E), fontSize: 12)),
-                    ],
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Equinox Launchpad',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Native UTXO Assets • Consensus Enforced',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(color: Color(0xFF8A919E), fontSize: 12),
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
@@ -240,7 +265,9 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _nodeOnline ? 'Node Live :18545' : 'Node Offline',
+                      _nodeOnline ? 'Node Live :8545' : 'Node Offline',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                       style: TextStyle(
                         color: _nodeOnline ? const Color(0xFF00D68F) : const Color(0xFFF5B731),
                         fontSize: 11,
@@ -286,6 +313,8 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
           alignment: Alignment.center,
           child: Text(
             label,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
             style: TextStyle(
               color: active ? const Color(0xFF08090C) : const Color(0xFF9CA3AF),
               fontWeight: FontWeight.w700,
@@ -323,12 +352,23 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${t.name} (${t.ticker})', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                    Text(
+                      '${t.name} (${t.ticker})',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
                     const SizedBox(height: 2),
-                    Text('Supply: ${t.supply} • ${t.assetId}', overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF8A919E), fontSize: 11)),
+                    Text(
+                      'Supply: ${t.supply} • ${t.assetId}',
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: const TextStyle(color: Color(0xFF8A919E), fontSize: 11),
+                    ),
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
@@ -337,6 +377,8 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
                 ),
                 child: Text(
                   t.status,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     color: migrated ? const Color(0xFF00D68F) : const Color(0xFFF5B731),
                     fontSize: 10,
@@ -360,8 +402,24 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Anti-Rug L1 Token', style: TextStyle(color: Color(0xFF8A919E), fontSize: 11)),
-              Text('Mint: Disabled • Freeze: Disabled', style: TextStyle(color: Color(0xFF00D68F), fontSize: 10)),
+              Expanded(
+                child: Text(
+                  'Anti-Rug L1 Token',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(color: Color(0xFF8A919E), fontSize: 11),
+                ),
+              ),
+              SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'Mint: Disabled • Freeze: Disabled',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(color: Color(0xFF00D68F), fontSize: 10),
+                ),
+              ),
             ],
           ),
         ],
@@ -390,19 +448,25 @@ class _EqxLaunchpadTabState extends State<EqxLaunchpadTab> {
           const SizedBox(height: 10),
           _input(_supplyCtrl, 'Total Fixed Supply', number: true),
           const SizedBox(height: 12),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Fixed Supply (Minting Disabled Forever)', style: TextStyle(color: Colors.white, fontSize: 13)),
-            value: _fixedSupply,
-            activeThumbColor: const Color(0xFF00D68F),
-            onChanged: (v) => setState(() => _fixedSupply = v),
+          Material(
+            color: Colors.transparent,
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fixed Supply (Minting Disabled Forever)', style: TextStyle(color: Colors.white, fontSize: 13)),
+              value: _fixedSupply,
+              activeThumbColor: const Color(0xFF00D68F),
+              onChanged: (v) => setState(() => _fixedSupply = v),
+            ),
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Auto-Migrate to Equinox AMM DEX', style: TextStyle(color: Colors.white, fontSize: 13)),
-            value: _autoDexMigrate,
-            activeThumbColor: const Color(0xFF00D68F),
-            onChanged: (v) => setState(() => _autoDexMigrate = v),
+          Material(
+            color: Colors.transparent,
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Auto-Migrate to Equinox AMM DEX', style: TextStyle(color: Colors.white, fontSize: 13)),
+              value: _autoDexMigrate,
+              activeThumbColor: const Color(0xFF00D68F),
+              onChanged: (v) => setState(() => _autoDexMigrate = v),
+            ),
           ),
           const SizedBox(height: 14),
           ElevatedButton(

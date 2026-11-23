@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Equinox Super Wallet",
+  "version": "1.0.0",
+  "description": "Equinox (EQX) Non-Custodial Layer-1 Mobile Super-Wallet & Chrome Extension",
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png",
+      "192": "icons/Icon-192.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png",
+    "192": "icons/Icon-192.png",
+    "512": "icons/Icon-512.png"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8545/*",
+    "https://*/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

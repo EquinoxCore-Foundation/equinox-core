@@ -5,6 +5,7 @@ import 'eqx_clean_wallet_tab.dart';
 import 'eqx_i18n.dart';
 import 'eqx_launchpad_tab.dart';
 import 'eqx_live_market.dart';
+import 'services/eqx_web_helper.dart';
 
 void main() {
   runApp(const EquinoxSuperWalletApp());
@@ -206,6 +207,27 @@ class _EquinoxCleanShellState extends State<EquinoxCleanShell> {
                         SizedBox(width: 5),
                         Text('POS', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
                       ],
+                    ),
+                  ),
+                ),
+              ),
+              // Compact Expand View icon button
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Tooltip(
+                  message: 'Expand View',
+                  child: InkWell(
+                    onTap: openFullTab,
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF13151C),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+                      ),
+                      child: const Icon(Icons.open_in_full_rounded, color: Colors.white70, size: 16),
                     ),
                   ),
                 ),

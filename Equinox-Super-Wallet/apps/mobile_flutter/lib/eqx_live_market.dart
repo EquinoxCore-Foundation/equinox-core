@@ -596,18 +596,21 @@ class _EqxLiveMarketTabState extends State<EqxLiveMarketTab> {
         final short = w.address.length > 14
             ? '${w.address.substring(0, 6)}...${w.address.substring(w.address.length - 5)}'
             : w.address;
-        return ListTile(
-          dense: true,
-          title: Text(w.label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-          subtitle: Text(short, style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace')),
-          trailing: IconButton(
-            icon: const Icon(Icons.close, size: 15, color: Colors.white38),
-            onPressed: () => setState(() => _trackedWallets.removeAt(i)),
+        return Material(
+          color: Colors.transparent,
+          child: ListTile(
+            dense: true,
+            title: Text(w.label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            subtitle: Text(short, style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: 'monospace')),
+            trailing: IconButton(
+              icon: const Icon(Icons.close, size: 15, color: Colors.white38),
+              onPressed: () => setState(() => _trackedWallets.removeAt(i)),
+            ),
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: w.address));
+              _toast('Copied ${w.label} address');
+            },
           ),
-          onTap: () {
-            Clipboard.setData(ClipboardData(text: w.address));
-            _toast('Copied ${w.label} address');
-          },
         );
       },
     );

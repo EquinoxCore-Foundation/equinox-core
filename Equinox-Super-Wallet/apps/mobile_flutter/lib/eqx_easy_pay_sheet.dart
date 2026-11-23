@@ -337,14 +337,17 @@ class _EqxEasyPaySheetState extends State<EqxEasyPaySheet> {
           ),
         ),
         const SizedBox(height: 8),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          activeColor: const Color(0xFF00E5A0),
-          value: _enableTimeLock,
-          onChanged: (v) => setState(() => _enableTimeLock = v),
-          title: Text(
-            EqxI18n.t('timelock_label'),
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+        Material(
+          color: Colors.transparent,
+          child: SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            activeThumbColor: const Color(0xFF00E5A0),
+            value: _enableTimeLock,
+            onChanged: (v) => setState(() => _enableTimeLock = v),
+            title: Text(
+              EqxI18n.t('timelock_label'),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ),
         ),
         const SizedBox(height: 8),

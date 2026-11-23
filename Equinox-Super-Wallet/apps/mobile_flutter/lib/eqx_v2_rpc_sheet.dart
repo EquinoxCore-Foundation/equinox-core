@@ -11,7 +11,7 @@ class EqxV2RpcClient {
   static String normalizeEndpoint(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty || trimmed.contains(' ')) {
-      return 'http://127.0.0.1:18545';
+      return 'http://127.0.0.1:8545';
     }
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return trimmed;
@@ -19,7 +19,7 @@ class EqxV2RpcClient {
     if (trimmed.contains(':')) {
       return 'http://$trimmed';
     }
-    return 'http://$trimmed:18545';
+    return 'http://$trimmed:8545';
   }
   Future<Map<String, dynamic>> call(String method, List<dynamic> params) async {
     final uri = Uri.parse(normalizeEndpoint(endpointUrl));
@@ -344,14 +344,14 @@ class _EqxV2UtilitySheetState extends State<EqxV2UtilitySheet> {
             TextField(
               controller: _rpcCtrl,
               style: const TextStyle(color: Colors.white, fontSize: 12),
-              decoration: _inputDecoration('Node JSON-RPC Endpoint (http://IP:18545)'),
+              decoration: _inputDecoration('Node JSON-RPC Endpoint (http://IP:8545)'),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               children: [
-                _presetBtn('Localhost', 'http://127.0.0.1:18545'),
-                _presetBtn('Android Emulator', 'http://10.0.2.2:18545'),
+                _presetBtn('Localhost', 'http://127.0.0.1:8545'),
+                _presetBtn('Android Emulator', 'http://10.0.2.2:8545'),
               ],
             ),
             const SizedBox(height: 12),
